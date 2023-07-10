@@ -99,6 +99,16 @@ module Template = struct
       type output = Expr.t
     end)
 
+  module Typecheck_part = Open_func.Make(struct
+      type input = Type.ctx * part
+      type output = Type.t
+    end)
+
+  module Typecheck_in_context = Open_func.Make(struct
+      type input = Type.ctx * part * t
+      type output = Type.t
+    end)
+
   module Show = Open_func.Make(struct
       type input = part
       type output = string
@@ -107,16 +117,23 @@ module Template = struct
   module type Fragment = sig
     val desugar_tpart : Desugar_part.func
     val desugar_tpart_in_context : Desugar_in_context.func
+    val typecheck_tpart : Typecheck_part.func
+    val typecheck_tpart_in_context : Typecheck_in_context.func
     val show_template : Show.func
   end
+
 
   let register (module F: Fragment) = 
     Desugar_part.register F.desugar_tpart;
     Desugar_in_context.register F.desugar_tpart_in_context;
+    Typecheck_part.register F.typecheck_tpart;
+    Typecheck_in_context.register F.typecheck_tpart_in_context;    
     Show.register F.show_template
 
   let desugar_part = Desugar_part.call
   let desugar_in_context = Desugar_in_context.call
+  let typecheck_part = Typecheck_part.call
+  let typecheck_in_context = Typecheck_in_context.call
 
   let show = Show.call
 end

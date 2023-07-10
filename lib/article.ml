@@ -33,7 +33,7 @@ module DTreeTProg = struct
   open Prelude
 
   type Template.part += TNode of string * (string * Expr.t) list * Template.t
-  
+
   type Expr.t += TreeTmpl of Template.t
 
   let desugar_expr = function TreeTmpl t -> desugar_template (tynode, t)
@@ -49,6 +49,21 @@ module DTreeTProg = struct
         (desugar_attrs attrs)
         (desugar_template (ty, children))
 
+  let typecheck (ctx, e) = match e with TreeTmpl t -> 
+    if typecheck_template (TplCtx tynode :: ctx, t) = tylist tynode then tylist tynode
+    else raise (Type_error "tree template")
+
+  let typecheck_tpart (ctx, p) = 
+    let ty = ctx_tpl_ty ctx in 
+    match p with
+    | TNode (_, attrs, children) ->
+      List.iter (fun (_, v) -> 
+          if Expr.typecheck (ctx, v) <> ty then raise (Type_error "attrs")) attrs;
+      if typecheck_template (ctx, children) <> tylist ty then raise (Type_error "children");
+      ty
+
+  let typecheck_tpart_in_context = Open_func.noop
+
   (* Boring code *)
 
   let show_template = function
@@ -58,7 +73,6 @@ module DTreeTProg = struct
 
   let eval = function TreeTmpl _ -> raise Not_desugared
 
-  let typecheck (_, e) = match e with TreeTmpl _ -> raise Not_desugared
 
   let subst_expr (_, _, e2) = match e2 with TreeTmpl _ -> raise Not_desugared
 
@@ -133,11 +147,17 @@ module DTreeTProgNested = struct
     | TIf (e, t1, t2) when ty = tynodetree -> 
       if_ (Expr.desugar e) (desugar_template_elems_as_fraglist t1) (desugar_template_elems_as_fraglist t2)
 
+  let typecheck (ctx, e) = match e with FragTpl t -> 
+    if typecheck_template (TplCtx tynodetree :: ctx, t) = tylist tynodetree then tylist tynode
+    else raise (Type_error "tree template")
+
   let eval = Open_func.noop
-  let typecheck = Open_func.noop
+
   let show_expr = Open_func.noop
   let subst_expr = Open_func.noop
   let show_template = Open_func.noop
+  let typecheck_tpart = Open_func.noop  
+  let typecheck_tpart_in_context = Open_func.noop
 end
 let register_dtreeprognested () =
   Expr.register (module DTreeTProgNested);

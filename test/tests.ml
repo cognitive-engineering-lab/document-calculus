@@ -31,6 +31,7 @@ let main () =
       Let("world", EString " World", 
           StrTmpl [TStr "Hello"; TExpr (Var "world")])) in
   assert (Expr.typecheck ([], (Expr.desugar e)) = TString);
+  assert (Expr.typecheck ([], e) = TString);
   assert (Expr.desugar_eval e = (EString "Hello World"));
 
 
@@ -42,6 +43,7 @@ let main () =
         list TString [EString "a"; EString "b"], "x", TString, 
         [TExpr (Var "x"); TStr "c"])]) in
   assert (Expr.typecheck ([], (Expr.desugar e)) = TString);
+  assert (Expr.typecheck ([], e) = TString);
   assert (Expr.desugar_eval e = (EString "acbc"));
 
 
@@ -63,6 +65,7 @@ let main () =
       node (EString "bold") (nil tyattr) (nodelist [text (EString "!")])
     ])])) in
   assert (Expr.typecheck ([], Expr.desugar e) = tylist tynode);
+  assert (Expr.typecheck ([], e) = tylist tynode);
   assert (Expr.desugar_eval e = expected);
 
 
@@ -78,6 +81,7 @@ let main () =
       [TNode ("bold", [], [TExpr (ftext (Var "x"))])]);    
   ])]) in
   assert (Expr.typecheck ([], Expr.desugar e) = tylist tynode);
+  assert (Expr.typecheck ([], e) = tylist tynode);
   assert (Expr.desugar_eval e = expected);
 
 

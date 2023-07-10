@@ -7,7 +7,7 @@ module StdString = Stdlib.String
    String literals are the only kind of expression, and strings are the only kind of type. *)
 module DStrLit = struct
   type Expr.t += EString of string
-    
+
   type Type.t += TString
 
   let eval = function EString s -> EString s
@@ -404,10 +404,11 @@ module DStrTLit = struct
   open DStrLit
   open Prelude
 
+  type Type.ctx_elem += TplCtx of Type.t
+
   type Template.part += TStr of string | TExpr of Expr.t
 
   type Expr.t += StrTmpl of Template.t
-
 
   let desugar_template (ty, t) = match t with 
     | [] -> nil ty 
@@ -422,11 +423,41 @@ module DStrTLit = struct
     | (TString, TStr s) -> EString s
     | (_, TExpr e) -> Expr.desugar e    
 
+  let ctx_tpl_ty ctx = List.find_map 
+      (fun elem -> match elem with TplCtx t -> Some t | _ -> None) 
+      ctx |> Option.get
+
+  let typecheck_template (ctx, t) = 
+    let ty = ctx_tpl_ty ctx in
+    match t with 
+    | [] -> tylist ty
+    | p :: ps -> Template.typecheck_in_context (ctx, p, ps)      
+
+  let typecheck_tpart (ctx, p) = 
+    let ty = ctx_tpl_ty ctx in
+    match p with
+    | TStr _ -> ty
+    | TExpr e -> 
+      if Expr.typecheck (ctx, e) = ty then ty 
+      else raise (Type_error "typecheck_tpart")
+
+  let typecheck_tpart_in_context (ctx, p, ps) =
+    let ty = ctx_tpl_ty ctx in
+    if Template.typecheck_part (ctx, p) <> ty then raise (Type_error "typecheck_tpart_in_context");    
+    typecheck_template (ctx, ps)
+
+  let typecheck (ctx, e) = match e with 
+      StrTmpl t -> 
+      if typecheck_template (TplCtx TString :: ctx, t) = tylist TString then
+        TString
+      else raise (Type_error "typecheck")
+
+
+
   (* Boring code *)
 
   let eval = function StrTmpl _ -> raise Not_desugared    
 
-  let typecheck (_, e) = match e with StrTmpl _ -> raise Not_desugared
 
   let subst_expr (_, _, e2) = match e2 with StrTmpl _ -> raise Not_desugared    
 
@@ -471,12 +502,37 @@ module DStrTProg = struct
       let t' = TSplice (if_ (Expr.desugar e) (desugar_template (ty, t1)) (desugar_template (ty, t2))) in
       Template.desugar_in_context (ty, t', ps)
 
+  let typecheck_tpart_in_context (ctx, p, ps) = 
+    let ty = ctx_tpl_ty ctx in 
+    match p with 
+    | TSet (x, e) ->
+      let ety = Expr.typecheck (ctx, e) in 
+      typecheck_template (BoundVar (x, ety) :: ctx, ps)
+    | TSplice e ->
+      let ety = Expr.typecheck (ctx, e) in 
+      if ety = tylist ty then typecheck_template (ctx, ps) 
+      else raise (Type_error "typecheck_tpart_in_context")
+    | TForeach (e, x, xty, t) ->
+      let ety = Expr.typecheck (ctx, e) in
+      let t' = typecheck_template (BoundVar (x, xty) :: ctx, t) in
+      if ety = tylist xty && t' = tylist ty then typecheck_template (ctx, ps)
+      else raise (Type_error "typecheck_tpart_in_context")
+    | TIf (e, t1, t2) ->
+      let ety = Expr.typecheck (ctx, e) in
+      let t1' = typecheck_template (ctx, t1) in
+      let t2' = typecheck_template (ctx, t2) in
+      if ety = tybool && t1' = tylist ty && t2' = tylist ty then typecheck_template (ctx, ps)
+      else raise (Type_error "typecheck_tpart_in_context")
+
+
   (* Boring code *)
 
   let show_template = function
     | TForeach (e1, x, t, kt) -> Printf.sprintf "{{ foreach (%s : %s) in %s }} %s {{ endforeach }}" x (Type.show t) (Expr.show e1) (show_ttext kt)
     | TSet (x, e) -> Printf.sprintf "{{ %s = %s }}" x (Expr.show e)
     | TSplice e -> Printf.sprintf ",@%s" (Expr.show e)
+
+  let typecheck_tpart = Open_func.noop
 
   let desugar_tpart = Open_func.noop
 end
