@@ -1,0 +1,4 @@
+(library
+ (name model)
+ (libraries base ppx_deriving.std)
+ (preprocess (pps ppx_deriving.show)))
