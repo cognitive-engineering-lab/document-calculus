@@ -1,4 +1,4 @@
 (library
  (name document_calculus)
- (libraries base ppx_deriving.std)
+ (libraries ppx_deriving.std)
  (preprocess (pps ppx_deriving.show)))

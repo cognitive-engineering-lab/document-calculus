@@ -11,6 +11,7 @@ bug-reports:
 depends: [
   "ocaml"
   "dune" {>= "3.6"}
+  "ppx_deriving"
   "odoc" {with-doc}
 ]
 build: [
