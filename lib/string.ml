@@ -1,30 +1,46 @@
 [@@@warning "-partial-match"]
 
 open Base
+open Bindlib
+
 module StdString = Stdlib.String
 
 (* D^String_Lit level of the document calculus.
    String literals are the only kind of expression, and strings are the only kind of type. *)
 module DStrLit = struct
+  (* We add string expressions and string types. *)
   type Expr.t += EString of string
-
   type Type.t += TString
 
+  (* The eval and typecheck functions are straightforward. *)
   let eval = function EString s -> EString s
-
   let typecheck (_, e) = match e with EString _ -> TString
 
-  let subst_expr (_, _, e2) = match e2 with EString s -> EString s
+  (* Many other functions that you can ignore.
+     Some of these will be useful later, but for now we are just
+     defining the uninteresting case of strings. *)
 
-  let subst_type (_, _, t2) = match t2 with TString -> TString
+  let show_expr (_, e) =  match e with EString s -> Printf.sprintf "\"%s\"" s
 
-  let desugar_expr = function EString s -> EString s
+  let show_type (_, ty) = match ty with TString -> "string"
+  
+  let _EString : string -> Expr.t box = 
+    fun s -> box (EString s)
 
-  let show_expr = function EString s -> Printf.sprintf "\"%s\"" s
+  let desugar_expr = function EString s -> _EString s
 
-  let show_type = function TString -> "string"
+  let lift_expr = function EString s -> _EString s
+
+  let _TString = box TString
+
+  let lift_type = function TString -> _TString
+
+  let eq_type = function (TString, TString) -> true
+
+
 end
 
+(* Call this function to load this language fragment into the open functions. *)
 let register_dstrlit () =
   Type.register (module DStrLit);
   Expr.register (module DStrLit)
@@ -37,59 +53,69 @@ module DStrProg = struct
 
   type dir = Left | Right
 
+  (* Add all of System F's expressions.
+     Note that we use Bindlib (https://lepigre.fr/ocaml-bindlib/) to handle binding. *)
   type Expr.t += 
     | Concat of Expr.t * Expr.t 
-    | Let of var * Expr.t * Expr.t
-    | Fix of var * Type.t * Expr.t
-    | Var of var
+    | Let of Expr.t * Expr.t Expr.binder
+    | Fix of Type.t * Expr.t Expr.binder
+    | Var of Expr.var
     | Inject of dir * Type.t * Expr.t
     | Case of {
         expr: Expr.t;
-        left: var * Expr.t;
-        right: var * Expr.t
+        left: Expr.t Expr.binder;
+        right: Expr.t Expr.binder;
       }
-    | Lambda of var * Type.t * Expr.t
+    | Lambda of Type.t * Expr.t Expr.binder
     | App of Expr.t * Expr.t
     | Unit
     | Pair of Expr.t * Expr.t
     | Project of Expr.t * dir
     | Fold of Type.t * Expr.t
     | Unfold of Type.t * Expr.t
-    | TyLambda of var * Expr.t
+    | TyLambda of Type.t Expr.binder
     | TyApp of Expr.t * Type.t
     | Pack of Type.t * Expr.t * Type.t
-    | Unpack of var * var * Expr.t * Expr.t
+    | Unpack of Expr.t * (Expr.t, (Type.t, Expr.t) binder) binder
 
   type Type.ctx_elem += 
-    | BoundVar of var * Type.t 
-    | BoundTypeVar of var
+    | BoundVar of Expr.var * Type.t 
+    | BoundTypeVar of Type.var
 
   type Type.t +=
     | TFun of Type.t * Type.t
     | TProd of Type.t * Type.t
     | TSum of Type.t * Type.t
     | TUnit
-    | TForall of var * Type.t
-    | TExists of var * Type.t
-    | TRec of var * Type.t
-    | TVar of var
+    | TForall of Type.t Type.binder
+    | TExists of Type.t Type.binder
+    | TRec of Type.t Type.binder
+    | TVar of Type.var
+
+  (* The code below is a relatively rote implementation of System F.
+     It mostly looks like you would find in e.g. TAPL. 
+     Most of the idiosyncracies (like the huge number of constructor functions)
+     are due to requirements of Bindlib. *)
 
   let eval = function
     | Concat (e1, e2) -> 
       let (EString s1, EString s2) = (Expr.eval e1, Expr.eval e2) in
       EString (s1 ^ s2)
-    | Let (x, e1, e2) -> Expr.eval(Expr.subst (x, (Expr.eval e1), e2))
-    | Fix (x, t, e) -> Expr.eval (Expr.subst (x, Fix (x, t, e), e))
+    | Let (e1, e2) -> Expr.eval (subst e2 (Expr.eval e1))
+    | Fix (t, e) -> Expr.eval (subst e (Fix (t, e)))
     | Var _ -> raise Undefined_behavior
     | Inject (dir, t, e) -> Inject (dir, t, Expr.eval e)
-    | Case {expr; left = (x, e1); right = (y, e2)} -> 
+    | Case {expr; left; right} -> 
       let (Inject (dir, _, e)) = Expr.eval expr in
-      Expr.eval (Expr.subst ((match dir with Left -> x | Right -> y), e, (match dir with Left -> e1 | Right -> e2)))
-    | Lambda (x, t, e) -> Lambda (x, t, e)
+      Expr.eval (subst
+                   (match dir with Left -> left | Right -> right)
+                   e)        
+    | Lambda (t, e) -> Lambda (t, e)
     | App (e1, e2) -> 
-      let Lambda (x, _, e) = Expr.eval e1 in
+      let Lambda (_, e) = Expr.eval e1 in
       let e2' = Expr.eval e2 in
-      Expr.eval (Expr.subst (x, e2', e))
+      Expr.eval (subst e e2')
+    | Unit -> Unit
     | Pair (e1, e2) -> Pair (Expr.eval e1, Expr.eval e2)
     | Project (e, d) -> 
       let Pair (v1, v2) = Expr.eval e in
@@ -98,15 +124,14 @@ module DStrProg = struct
     | Unfold (_, e) -> 
       let Fold (_, e) = Expr.eval e in 
       e
-    | TyLambda (x, e) -> TyLambda (x, e)
-    | TyApp (e, _) -> 
-      let TyLambda (_, e) = Expr.eval e in
-      Expr.eval e    
-    | Unit -> Unit
+    | TyLambda e -> TyLambda e
+    | TyApp (e, t) -> 
+      let TyLambda e = Expr.eval e in
+      Expr.eval (subst e t)
     | Pack (t1, e, t2) -> Pack (t1, Expr.eval e, t2)
-    | Unpack (x, _, e1, e2) ->
-      let Pack (_, v, _) = Expr.eval e1 in
-      Expr.eval (Expr.subst (x, v, e2))
+    | Unpack (e1, e2) ->
+      let Pack (t, v, _) = Expr.eval e1 in
+      Expr.eval (subst (subst e2 v) t)      
 
   let typecheck (ctx, e) = match e with 
     | Concat (e1, e2) -> 
@@ -114,41 +139,47 @@ module DStrProg = struct
       (match (t1, t2) with
        | (TString, TString) -> TString
        | _ -> raise (Type_error "concat"))
-    | Let (x, e1, e2) -> 
+    | Let (e1, e2) -> 
       let t1 = Expr.typecheck (ctx, e1) in
-      Expr.typecheck ((BoundVar (x, t1)) :: ctx, e2)
-    | Fix (x, t, e) ->
-      Expr.typecheck ((BoundVar (x, t)) :: ctx, e)
+      let (x, e2') = unbind e2 in
+      Expr.typecheck ((BoundVar (x, t1)) :: ctx, e2')
+    | Fix (t, e) ->
+      let (x, e') = unbind e in
+      Expr.typecheck ((BoundVar (x, t)) :: ctx, e')
     | Var x -> 
       let ty_opt = List.find_map (fun elem -> match elem with 
-          | BoundVar (y, t) -> if x = y then Some t else None
+          | BoundVar (y, t) -> 
+            if eq_vars x y then Some t else None
           | _ -> None) ctx in 
       (match ty_opt with
        | Some ty -> ty
-       | None -> raise (Type_error (Printf.sprintf "Var: %s" x)))
+       | None -> raise (Type_error (Printf.sprintf "Var: %s" (name_of x))))
     | Inject (dir, t, e') -> 
       let t' = Expr.typecheck (ctx, e') in
       let t'' = (match (dir, t) with 
           | (Left, TSum (t'', _)) ->  t''
           | (Right, TSum (_, t'')) -> t''
           | _ -> raise (Type_error (Printf.sprintf "inject: not a sum: %s" (Expr.show e)))) in
-      if t' = t'' then t else raise (Type_error (Printf.sprintf "inject: %s != %s" (Type.show t') (Type.show t'')))
-    | Case {expr; left = (x, e1); right = (y, e2)} ->
+      if Type.eq t' t'' then t else raise (Type_error (Printf.sprintf "inject: %s != %s" (Type.show t') (Type.show t'')))
+    | Case {expr; left; right} ->
       let t = Expr.typecheck (ctx, expr) in
       (match t with
        | TSum (t1, t2) -> 
-         let t1' = Expr.typecheck ((BoundVar (x, t1)) :: ctx, e1) in
-         let t2' =  Expr.typecheck ((BoundVar (y, t2)) :: ctx, e2) in
-         if t1' = t2' then t1' else raise (Type_error (Printf.sprintf "case: %s != %s" (Type.show t1') (Type.show t2')))
+         let (x, left') = unbind left in
+         let (y, right') = unbind right in
+         let t1' = Expr.typecheck ((BoundVar (x, t1)) :: ctx, left') in
+         let t2' =  Expr.typecheck ((BoundVar (y, t2)) :: ctx, right') in
+         if Type.eq t1' t2' then t1' else raise (Type_error (Printf.sprintf "case: %s != %s" (Type.show t1') (Type.show t2')))
        | _ -> raise (Type_error "case"))
-    | Lambda (x, t, e) -> 
-      let t' = Expr.typecheck ((BoundVar (x, t)) :: ctx, e) in
+    | Lambda (t, e) -> 
+      let (x, e') = unbind e in
+      let t' = Expr.typecheck ((BoundVar (x, t)) :: ctx, e') in
       TFun (t, t')
     | App (e1, e2) -> 
       let t1 = Expr.typecheck (ctx, e1) in 
       let t2 = Expr.typecheck (ctx, e2) in
       (match t1 with
-       | TFun (t1', t1'') -> if t1' = t2 then t1'' else raise (Type_error (Printf.sprintf "app: %s != %s" (Type.show t1') (Type.show t2)))
+       | TFun (t1', t1'') -> if Type.eq t1' t2 then t1'' else raise (Type_error (Printf.sprintf "app: %s : %s != %s : %s" (Expr.show e1) (Type.show t1') (Expr.show e2) (Type.show t2)))
        | _ -> raise (Type_error "app"))
     | Pair (e1, e2) -> 
       let t1 = Expr.typecheck (ctx, e1) in
@@ -160,135 +191,256 @@ module DStrProg = struct
        | TProd (t1, t2) -> (match d with Left -> t1 | Right -> t2)
        | _ -> raise (Type_error (Printf.sprintf "project from non-product: %s" (Type.show t))))
     | Fold (t, e) ->
-      let TRec(x, t') = t in
-      let t'' = Expr.typecheck ((BoundVar (x, t)) :: ctx, e) in
-      let t''' = Type.subst (x, t, t') in
-      if  t''' = t'' then t else raise (Type_error (Printf.sprintf "fold: %s != %s" (Type.show t'') (Type.show t''')))
+      let TRec t0 = t in      
+      let t2 = Expr.typecheck (ctx, e) in
+      let t3 = subst t0 t in
+      if  Type.eq t2 t3 then t else raise (Type_error (Printf.sprintf "fold: %s != %s" (Type.show t2) (Type.show t3)))
     | Unfold (t, e) ->
-      let TRec(x, t') = t in
-      let t'' = Expr.typecheck (ctx, e) in
-      if t = t'' then Type.subst (x, t, t') else raise (Type_error "unfold")
-    | TyLambda (x, e) -> 
-      let t = Expr.typecheck ((BoundTypeVar x) :: ctx, e) in
-      TForall (x, t)
+      let TRec t0 = t in
+      let t1 = Expr.typecheck (ctx, e) in
+      if Type.eq t t1 then subst t0 t else raise (Type_error "unfold")
+    | TyLambda e -> 
+      let (alpha, e') = unbind e in
+      let t = Expr.typecheck ((BoundTypeVar alpha) :: ctx, e') in
+      TForall (unbox (bind_var alpha (Type.lift t)))
     | TyApp (e, t) ->
-      let t' = Expr.typecheck (ctx, e) in
-      (match t' with
-       | TForall (x, t'') -> Type.subst (x, t, t'')
+      let t0 = Expr.typecheck (ctx, e) in
+      (match t0 with
+       | TForall t1 -> 
+         subst t1 t
        | _ -> raise (Type_error "tyapp"))
     | Unit -> TUnit    
-    | Pack (t1, e, t2) ->
-      let TExists(a, t') = t2 in
-      if Type.subst (a, t1, t') = Expr.typecheck (ctx, e) then t2 else raise (Type_error "pack")
-    | Unpack (x, a, e1, e2) ->
-      let t = Expr.typecheck (ctx, e1) in
-      (match t with
-       | TExists (b, t') -> 
-         let t'' = Type.subst (b, TVar a, t') in
-         Expr.typecheck ((BoundTypeVar a) :: (BoundVar (x, t'')) :: ctx, e2)
+    | Pack (t1, e, t2ex) ->
+      let TExists t2 = t2ex in
+      if Type.eq (Expr.typecheck (ctx, e)) (subst t2 t1) then t2ex 
+      else raise (Type_error "pack")
+    | Unpack (e1, e2) ->
+      (match Expr.typecheck (ctx, e1) with
+       | TExists t0 ->
+         let (alpha, t1) = unbind t0 in
+         let (x, e3) = unbind e2 in
+         let ctx' = (BoundTypeVar alpha) :: (BoundVar (x, t1)) :: ctx in
+         Expr.typecheck (ctx', (subst e3 (TVar alpha)))
        | _ -> raise (Type_error "unpack"))
 
-  (* ignore alpha-renaming for now *)
-  let subst_expr (x, e1, e2) = match e2 with  
-    | Concat (e1', e2') -> Concat (Expr.subst (x, e1, e1'), Expr.subst (x, e1, e2'))
-    | Let (y, e1', e2') ->
-      Let (y, Expr.subst (x, e1, e1'), if x = y then e2' else Expr.subst (x, e1, e2'))
-    | Fix (y, t, e') -> Fix (y, t, if x = y then e' else Expr.subst (x, e1, e'))
-    | Var y -> if x = y then e1 else Var y
-    | Inject (dir, t, e') -> Inject (dir, t, Expr.subst (x, e1, e'))
-    | Case {expr; left = (y, e1'); right = (z, e2')} ->
-      Case {
-        expr = Expr.subst (x, e1, expr);
-        left = (y, if x = y then e1' else Expr.subst (x, e1, e1'));
-        right = (z, if x = z then e2' else Expr.subst (x, e1, e2'))
-      }
-    | Lambda (y, t, e') -> Lambda (y, t, if x = y then e' else Expr.subst (x, e1, e'))
-    | App (e1', e2') -> App (Expr.subst (x, e1, e1'), Expr.subst (x, e1, e2'))
-    | Pair (e1', e2') -> Pair (Expr.subst (x, e1, e1'), Expr.subst (x, e1, e2'))
-    | Project (e', d) -> Project (Expr.subst (x, e1, e'), d)
-    | Fold (t, e') -> Fold (t, Expr.subst (x, e1, e'))
-    | Unfold (t, e') -> Unfold (t, Expr.subst (x, e1, e'))
-    | TyLambda (y, e') -> TyLambda (y, if x = y then e' else Expr.subst (x, e1, e'))
-    | TyApp (e', t) -> TyApp (Expr.subst (x, e1, e'), t)
-    | Unit -> Unit
+  (* let map_binder f b  =
+    let (x, inner) = unbind b in
+    unbox (bind_var x (Expr.lift (f inner))) *)
 
-  let subst_type (x, t1, t2) = match t2 with
-    | TFun (t1', t1'') -> TFun (Type.subst (x, t1, t1'), Type.subst (x, t1, t1''))
-    | TProd (t1', t1'') -> TProd (Type.subst (x, t1, t1'), Type.subst (x, t1, t1''))
-    | TSum (t1', t1'') -> TSum (Type.subst (x, t1, t1'), Type.subst (x, t1, t1''))
-    | TUnit -> TUnit
-    | TForall (y, t) -> TForall (y, if x = y then t else Type.subst (x, t1, t))
-    | TRec (y, t) -> TRec (y, if x = y then t else Type.subst (x, t1, t))
-    | TVar y -> if x = y then t1 else TVar y
-
-  let desugar_expr = function
-    | Concat (e1, e2) -> Concat(Expr.desugar e1, Expr.desugar e2)
-    | Let (x, e1, e2) -> Let(x, Expr.desugar e1, Expr.desugar e2)
-    | Fix (x, t, e) -> Fix(x, t, Expr.desugar e)
-    | Var x -> Var x
-    | Inject (dir, t, e) -> Inject (dir, t, Expr.desugar e)
-    | Case {expr; left = (x, e1); right = (y, e2)} -> 
-      Case {
-        expr = Expr.desugar expr;
-        left = (x, Expr.desugar e1);
-        right = (y, Expr.desugar e2)
-      }
-    | Lambda (x, t, e) -> Lambda (x, t, Expr.desugar e)
-    | App (e1, e2) -> App (Expr.desugar e1, Expr.desugar e2)
-    | Pair (e1, e2) -> Pair (Expr.desugar e1, Expr.desugar e2)
-    | Project (e, n) -> Project (Expr.desugar e, n)
-    | Fold (t, e) -> Fold (t, Expr.desugar e)
-    | Unfold (t, e) -> Unfold (t, Expr.desugar e)
-    | TyLambda (x, e) -> TyLambda (x, Expr.desugar e)
-    | TyApp (e, t) -> TyApp (Expr.desugar e, t)
-    | Unit -> Unit
+  let eq_type = function
+    | (TFun (t1, t2), TFun (t1', t2')) -> Type.eq t1 t1' && Type.eq t2 t2'
+    | (TProd (t1, t2), TProd (t1', t2')) -> Type.eq t1 t1' && Type.eq t2 t2'
+    | (TSum (t1, t2), TSum (t1', t2')) -> Type.eq t1 t1' && Type.eq t2 t2'
+    | (TUnit, TUnit) -> true
+    | (TForall t1, TForall t2) -> eq_binder Type.eq t1 t2
+    | (TExists t1, TExists t2) -> eq_binder Type.eq t1 t2
+    | (TRec t1, TRec t2) -> eq_binder Type.eq t1 t2
+    | (TVar x, TVar y) -> eq_vars x y
 
   let show_dir = function Left -> "l" | Right -> "r"
 
-  let show_expr = function
-    | Concat (e1, e2) -> Printf.sprintf "%s + %s" (Expr.show e1) (Expr.show e2)
-    | Let (x, e1, e2) -> Printf.sprintf "let %s = %s in\n%s" x (Expr.show e1) (Expr.show e2)
-    | Fix (x, t, e) -> Printf.sprintf "fix (%s : %s). %s" x (Type.show t) (Expr.show e)
-    | Var x -> x
+  let show_expr (ctx, e) = match e with
+    | Concat (e1, e2) -> Printf.sprintf "%s + %s" (Expr.show_ctx (ctx, e1)) (Expr.show_ctx (ctx, e2))
+    | Let (e1, e2) -> 
+      let (x, e2, ctx) = unbind_in ctx e2 in
+      Printf.sprintf "let %s = %s in\n%s" 
+        (name_of x) 
+        (Expr.show_ctx (ctx, e1)) 
+        (Expr.show_ctx (ctx, e2))
+    | Fix (t, e) -> 
+      let (x, e, ctx) = unbind_in ctx e in
+      Printf.sprintf "fix (%s : %s). %s" 
+        (name_of x) 
+        (Type.show_ctx (ctx, t)) 
+        (Expr.show_ctx (ctx, e))
+    | Var x -> name_of x
     | Inject (d, t, e) -> 
-      Printf.sprintf "in%s(%s as %s)" (show_dir d) (Expr.show e) (Type.show t)
-    | Case {expr; left = (x, e1); right = (y, e2)} -> 
-      Printf.sprintf "case %s of inl(%s) -> %s | inr(%s) -> %s" (Expr.show expr) x (Expr.show e1) y (Expr.show e2)
-    | Lambda (x, t, e) -> Printf.sprintf " fun (%s:%s). %s" x (Type.show t) (Expr.show e)
-    | App (e1, e2) -> Printf.sprintf "%s %s" (Expr.show e1) (Expr.show e2)
-    | Pair (e1, e2) -> Printf.sprintf "(%s, %s)" (Expr.show e1) (Expr.show e2)
-    | Project (e, d) -> Printf.sprintf "%s.%s" (Expr.show e) (show_dir d)
+      Printf.sprintf "in%s(%s as %s)" (show_dir d) (Expr.show_ctx (ctx, e)) (Type.show_ctx (ctx, t))
+    | Case {expr; left; right} -> 
+      let (x, left, ctx) = unbind_in ctx left in
+      let (y, right, ctx) = unbind_in ctx right in
+      Printf.sprintf "case %s of inl(%s) -> %s | inr(%s) -> %s" 
+        (Expr.show_ctx (ctx, expr)) 
+        (name_of x) (Expr.show_ctx (ctx, left)) 
+        (name_of y) (Expr.show_ctx (ctx, right))
+    | Lambda (t, e) -> 
+      let (x, e, ctx) = unbind_in ctx e in
+      Printf.sprintf " fun (%s:%s). %s" 
+        (name_of x) 
+        (Type.show_ctx (ctx, t)) 
+        (Expr.show_ctx (ctx, e))
+    | App (e1, e2) -> Printf.sprintf "%s %s" (Expr.show_ctx (ctx, e1)) (Expr.show_ctx (ctx, e2))
+    | Pair (e1, e2) -> Printf.sprintf "(%s, %s)" (Expr.show_ctx (ctx, e1)) (Expr.show_ctx (ctx, e2))
+    | Project (e, d) -> Printf.sprintf "%s.%s" (Expr.show_ctx (ctx, e)) (show_dir d)
     | Fold (t, e) -> 
       (match t with
-       | TRec ("list", _) -> 
-         let  Inject (d, _, e) = e in
-         (match d with
+       (* | TRec ("list", _) -> 
+          let  Inject (d, _, e) = e in
+          (match d with
           | Left -> "[]"
           | Right -> 
             let Pair (e1, e2) = e in
-            Printf.sprintf "%s :: %s" (Expr.show e1) (Expr.show e2))
-       | TRec ("node", _) ->
-         let Inject (d, _, e) = e in
-         (match d with
-          | Left -> Printf.sprintf "<text>%s</text>" (Expr.show e)
+            Printf.sprintf "%s :: %s" (Expr.show_ctx (ctx, e1)) (Expr.show_ctx (ctx, e2)))
+          | TRec ("node", _) ->
+          let Inject (d, _, e) = e in
+          (match d with
+          | Left -> Printf.sprintf "<text>%s</text>" (Expr.show_ctx (ctx, e))
           | Right -> 
             let Pair(nt, children) = e in
-            Printf.sprintf "<%s>%s</%s>" (Expr.show nt) (Expr.show children) (Expr.show nt))
-       | _ -> Printf.sprintf "fold %s as (%s)"  (Expr.show e) (Type.show t))
-    | Unfold (t, e) -> Printf.sprintf "unfold %s from (%s)" (Expr.show e) (Type.show t) 
-    | TyLambda (x, e) -> Printf.sprintf "tfun %s -> %s" x (Expr.show e)
-    | TyApp (e, t) -> Printf.sprintf "%s[%s]" (Expr.show e) (Type.show t)
+            Printf.sprintf "<%s>%s</%s>" (Expr.show_ctx (ctx, nt)) (Expr.show_ctx (ctx, children)) (Expr.show_ctx (ctx, nt))) *)
+       | _ -> Printf.sprintf "fold %s as (%s)"  (Expr.show_ctx (ctx, e)) (Type.show_ctx (ctx, t)))
+    | Unfold (t, e) -> Printf.sprintf "unfold %s from (%s)" (Expr.show_ctx (ctx, e)) (Type.show_ctx (ctx, t) )
+    | TyLambda e -> 
+      let (x, e, ctx) = unbind_in ctx e in
+      Printf.sprintf "tfun %s -> %s" (name_of x) (Expr.show_ctx (ctx, e))
+    | TyApp (e, t) -> Printf.sprintf "%s[%s]" (Expr.show_ctx (ctx, e)) (Type.show_ctx (ctx, t))
     | Unit -> "()"
 
-  let show_type = function
-    | TFun (t1, t2) -> Printf.sprintf "%s -> %s" (Type.show t1) (Type.show t2)
-    | TProd (t1, t2) -> Printf.sprintf "%s * %s" (Type.show t1) (Type.show t2)
-    | TSum (t1, t2) -> Printf.sprintf "%s + %s" (Type.show t1) (Type.show t2)
+  let show_type (ctx, t) = match t with
+    | TFun (t1, t2) -> Printf.sprintf "(%s -> %s)" (Type.show_ctx (ctx, t1)) (Type.show_ctx (ctx, t2))
+    | TProd (t1, t2) -> Printf.sprintf "%s * %s" (Type.show_ctx (ctx, t1)) (Type.show_ctx (ctx, t2))
+    | TSum (t1, t2) -> Printf.sprintf "%s + %s" (Type.show_ctx (ctx, t1)) (Type.show_ctx (ctx, t2))
     | TUnit -> "unit"
-    | TForall (x, t) -> Printf.sprintf "forall %s. %s" x (Type.show t)
-    | TRec (x, t) -> Printf.sprintf "rec %s. %s" x (Type.show t)
-    | TVar x -> x
+    | TForall t -> 
+      let (x, t, ctx) = unbind_in ctx t in
+      Printf.sprintf "forall %s. %s" (name_of x) (Type.show_ctx (ctx, t))
+    | TRec t -> 
+      let (x, t, ctx) = unbind_in ctx t in
+      if (name_of x) = "list" then
+        let TSum (_, TProd (t', _)) = t in
+        Printf.sprintf "%s list" (Type.show_ctx (ctx, t'))
+      else 
+        Printf.sprintf "rec %s. %s" (name_of x) (Type.show_ctx (ctx, t))
+    | TVar x -> name_of x
+
+  let mkefree = new_var (fun x -> Var x)
+  let mktfree = new_var (fun x -> TVar x)
+
+  let _Var : Expr.t var -> Expr.t box = 
+    box_var
+  let _Concat : Expr.t box -> Expr.t box -> Expr.t box = 
+    box_apply2 (fun a b -> Concat (a, b))
+  let _Let : Expr.t var -> Expr.t box -> Expr.t box -> Expr.t box =
+    fun x e1 e2 -> box_apply2 (fun e1 e2 -> Let (e1, e2)) e1 (bind_var x e2)
+  let _App : Expr.t box -> Expr.t box -> Expr.t box = 
+    box_apply2 (fun a b -> App (a, b))
+  let _Lambda :  Expr.t var -> Type.t box -> Expr.t box -> Expr.t box =
+    fun x t e -> box_apply2 (fun t e -> Lambda (t, e)) t (bind_var x e)
+  let _TyLambda : Type.t var -> Expr.t box -> Expr.t box =
+    fun a e -> box_apply (fun e -> TyLambda e) (bind_var a e)
+  let _TyApp : Expr.t box -> Type.t box -> Expr.t box =
+    box_apply2 (fun e t -> TyApp (e, t))
+  let _Unit : Expr.t box =
+    box Unit
+  let _Pair : Expr.t box -> Expr.t box -> Expr.t box =
+    box_apply2 (fun a b -> Pair (a, b))
+  let _Project : Expr.t box -> dir -> Expr.t box =
+    fun e d -> box_apply (fun e -> Project (e, d)) e
+  let _Fold : Type.t box -> Expr.t box -> Expr.t box =
+    box_apply2 (fun t e -> Fold (t, e))
+  let _Unfold : Type.t box -> Expr.t box -> Expr.t box =
+    box_apply2 (fun t e -> Unfold (t, e))
+  let _Fix : Expr.t var -> Type.t box -> Expr.t box -> Expr.t box =
+    fun x t e -> box_apply2 (fun t e -> Fix (t, e)) t (bind_var x e)    
+  let _Pack : Type.t box -> Expr.t box -> Type.t box -> Expr.t box =
+    box_apply3 (fun t1 e t2 -> Pack (t1, e, t2))
+  let _Unpack : Expr.t var -> Type.t var -> Expr.t box -> Expr.t box -> Expr.t box =
+    fun x a e1 e2 -> box_apply2 (fun e1 e2 -> Unpack (e1, e2)) e1 (bind_var x (bind_var a e2))
+  let _Inject : dir -> Type.t box -> Expr.t box -> Expr.t box =
+    fun d t e -> box_apply2 (fun t e -> Inject (d, t, e)) t e
+  let _Case : Expr.t box -> Expr.t var -> Expr.t box -> Expr.t var -> Expr.t box -> Expr.t box =
+    fun expr x left y right -> 
+    box_apply3 (fun expr left right  -> Case {expr; left; right}) expr (bind_var x left) (bind_var y right)  
+
+  let _TUnit : Type.t box = box TUnit
+  let _TProd : Type.t box -> Type.t box -> Type.t box =
+    box_apply2 (fun a b -> TProd (a, b))
+  let _TSum : Type.t box -> Type.t box -> Type.t box =
+    box_apply2 (fun a b -> TSum (a, b))
+  let _TFun : Type.t box -> Type.t box -> Type.t box =
+    box_apply2 (fun a b -> TFun (a, b))
+  let _TForall : Type.t var -> Type.t box -> Type.t box =
+    fun a t -> box_apply (fun t -> TForall t) (bind_var a t)
+  let _TRec : Type.t var -> Type.t box -> Type.t box =
+    fun a t -> box_apply (fun t -> TRec t) (bind_var a t)
+  let _TExists : Type.t var -> Type.t box -> Type.t box =
+    fun a t -> box_apply (fun t -> TExists t) (bind_var a t)
+  let _TVar : Type.t var -> Type.t box =
+    box_var    
+  
+  let desugar_expr = function
+    | Concat (e1, e2) -> _Concat (Expr.desugar e1) (Expr.desugar e2)
+    | Let (e1, e2) ->
+      let (x, e2) = unbind e2 in
+      _Let x (Expr.desugar e1) (Expr.desugar e2)
+    | Fix (t, e) -> 
+      let (x, e) = unbind e in
+      _Fix x (Type.lift t) (Expr.desugar e)
+    | Var x -> _Var x
+    | Inject (dir, t, e) -> _Inject dir (Type.lift t) (Expr.desugar e)
+    | Case {expr; left; right} -> 
+      let (x, left) = unbind left in
+      let (y, right) = unbind right in
+      _Case (Expr.desugar expr) x (Expr.desugar left) y (Expr.desugar right)
+    | Lambda (t, e) -> 
+      let (x, e) = unbind e in
+      _Lambda x (Type.lift t) (Expr.desugar e)
+    | App (e1, e2) -> 
+      _App (Expr.desugar e1) (Expr.desugar e2)
+    | Pair (e1, e2) -> 
+      _Pair (Expr.desugar e1) (Expr.desugar e2)
+    | Project (e, n) -> 
+      _Project (Expr.desugar e) n
+    | Fold (t, e) -> 
+      _Fold (Type.lift t) (Expr.desugar e)
+    | Unfold (t, e) -> 
+      _Unfold (Type.lift t) (Expr.desugar e)
+    | TyLambda e ->
+      let (x, e) = unbind e in
+      _TyLambda x (Expr.desugar e)
+    | TyApp (e, t) -> 
+      _TyApp (Expr.desugar e) (Type.lift t)
+    | Unit -> _Unit
+    | Pack (t1, e, t2) -> 
+      _Pack (Type.lift t1) (Expr.desugar e) (Type.lift t2)
+    | Unpack (e1, e2) -> 
+      let (x, e2') = unbind e2 in
+      let (a, e2'') = unbind e2' in
+      _Unpack x a (Expr.desugar e1) (Expr.desugar e2'')
+
+
+  let lift_type = function
+    | TFun (t1, t2) -> _TFun (Type.lift t1) (Type.lift t2)
+    | TProd (t1, t2) -> _TProd (Type.lift t1) (Type.lift t2)
+    | TSum (t1, t2) -> _TSum (Type.lift t1) (Type.lift t2)
+    | TUnit -> _TUnit
+    | TForall t -> box_apply (fun t -> TForall t) (box_binder Type.lift t)
+    | TExists t -> box_apply (fun t -> TExists t) (box_binder Type.lift t)
+    | TRec t -> box_apply (fun t -> TRec t) (box_binder Type.lift t)
+    | TVar x -> box_var x
+
+  let lift_expr = function
+    | Concat (e1, e2) -> _Concat (Expr.lift e1) (Expr.lift e2)
+    | Let (e1, e2) -> box_apply2 (fun e1 e2 -> Let (e1, e2)) (Expr.lift e1) (box_binder Expr.lift e2)
+    | Fix (t, e) -> box_apply2 (fun t e -> Fix (t, e)) (Type.lift t) (box_binder Expr.lift e)
+    | Var x -> box_var x
+    | Inject (d, t, e) -> _Inject d (Type.lift t) (Expr.lift e)
+    | Case {expr; left; right} -> 
+      box_apply3 (fun expr left right -> Case {expr; left; right}) (Expr.lift expr) (box_binder Expr.lift left) (box_binder Expr.lift right)
+    | Lambda (t, e) -> box_apply2 (fun t e -> Lambda (t, e)) (Type.lift t) (box_binder Expr.lift e)
+    | App (e1, e2) -> _App (Expr.lift e1) (Expr.lift e2)
+    | Pair (e1, e2) -> _Pair (Expr.lift e1) (Expr.lift e2)
+    | Project (e, d) -> _Project (Expr.lift e) d
+    | Fold (t, e) -> _Fold (Type.lift t) (Expr.lift e)
+    | Unfold (t, e) -> _Unfold (Type.lift t) (Expr.lift e)
+    | TyLambda e -> box_apply (fun e -> TyLambda e) (box_binder Expr.lift e)
+    | TyApp (e, t) -> _TyApp (Expr.lift e) (Type.lift t)
+    | Unit -> _Unit
+    | Pack (t1, e, t2) -> _Pack (Type.lift t1) (Expr.lift e) (Type.lift t2)
+    | Unpack (e1, e2) -> 
+      box_apply2 (fun e1 e2 -> Unpack (e1, e2)) (Expr.lift e1) (box_binder (box_binder Expr.lift) e2)
 end
+
 let register_dstrprog () =
   Expr.register (module DStrProg);
   Type.register (module DStrProg)
@@ -299,108 +451,128 @@ module Prelude = struct
   open DStrLit
   open DStrProg
 
-  let app1 f x = App (f, x)
-  let app2 f x y = App (App (f, x), y)
-  let app3 f x y z = App (App (App (f, x), y), z)
+  let app1 f x = _App f x
+  let app2 f x y = _App (_App f x) y
+  let app3 f x y z = _App (_App (_App f x) y) z
 
-  let tyapp1 f x = TyApp (f, x)
-  let tyapp2 f x y = TyApp (TyApp (f, x), y)  
+  let tyapp1 f x = _TyApp f x
+  let tyapp2 f x y = _TyApp (_TyApp f x) y
 
-  let lam1 x t e = Lambda (x,t, e)
-  let lam2 x t1 y t2 e = Lambda (x, t1, Lambda (y, t2, e))
-  let lam3 x t1 y t2 z t3 e = Lambda (x, t1, Lambda (y, t2, Lambda (z, t3, e)))
+  let lam1 x t e = _Lambda x t e
+  let lam2 x t1 y t2 e = _Lambda x t1 (_Lambda y t2 e)
+  let lam3 x t1 y t2 z t3 e = _Lambda x t1 (_Lambda y t2 (_Lambda z t3 e))
 
-  let tylam1 x e = TyLambda (x, e)
-  let tylam2 x y e = TyLambda (x, TyLambda (y, e))
+  let tylam1 x e = _TyLambda x e
+  let tylam2 x y e = _TyLambda x (_TyLambda y e)
 
-  let tya = TVar "a"
-  let tyb = TVar "b"
+  let tya = mktfree "a"
+  let tva = _TVar tya
+  let tyb = mktfree "b"
+  let tvb = _TVar tyb
 
-  let eunit = Unit
+  let eunit = _Unit
 
-  let tybool = TSum (TUnit, TUnit)
-  let false_ = Inject (Right, tybool, eunit)
-  let true_ = Inject (Left, tybool, eunit) 
-  let if_ expr then_ else_ = Case {
-      expr; left = ("_", then_); right = ("_", else_)
-    }
+  let tybool = _TSum _TUnit _TUnit
+  let false_ = _Inject Right tybool eunit
+  let true_ = _Inject Left tybool eunit
+  let ignore = mkefree "_"
+  let if_ expr then_ else_ = _Case expr ignore then_ ignore else_
 
+  let tylist = mktfree "list"
+  let tylist t = _TRec tylist (_TSum _TUnit (_TProd t (_TVar tylist)))
+  let tylistbody t = _TSum _TUnit (_TProd t (tylist t))
 
-  let tylist t = TRec ("list", TSum (TUnit, TProd (t, TVar "list")))
-  let tylistbody t = TSum (TUnit, TProd (t, tylist t))
-
-  let enil = TyLambda ("a", Fold(tylist tya, Inject (Left, tylistbody tya, eunit)))
+  let vnil = mkefree "nil"
+  let enil = _TyLambda tya (_Fold (tylist tva) (_Inject Left (tylistbody tva) eunit))
   let nil t = tyapp1 enil t
 
-  let econs = tylam1 "a" (
-      lam2 "x" tya "y" (tylist tya) 
-        (Fold(tylist tya, Inject (Right, tylistbody tya, Pair (Var "x", Var "y")))))
+  let x = mkefree "x"
+  let y = mkefree "y"
+  let f = mkefree "f"
+  let l = mkefree "l"
+  let z = mkefree "z"
+  let xs = mkefree "xs"
+  let econs = 
+    tylam1 tya (
+      lam2 x tva y (tylist tva)
+        (_Fold (tylist tva) (_Inject Right (tylistbody tva) (_Pair (_Var x) (_Var y)))))
+  let vcons = mkefree "cons"
   let cons a = app2 (tyapp1 econs a)
 
+  let vfold = mkefree "fold"
+
   let efold = 
-    let fty = TFun(tya, TFun(tyb, tyb)) in
-    let ty = TFun(fty, TFun(tyb, TFun(tylist tya, tyb))) in
-    tylam2 "a" "b" (Fix ("fold", ty, lam3 "f" fty "z" tyb "l" (tylist tya) (Case {
-        expr = Unfold(tylist tya, Var "l");
-        left = ("_", Var "z");
-        right = ("cell", 
-                 app2 (Var "f")
-                   (Project (Var "cell", Left)) 
-                   (app3 (Var "fold") 
-                      (Var "f") 
-                      (Var "z") 
-                      (Project (Var "cell", Right))));
-      })))
-  let fold a b = app3 (tyapp2 (Var "fold") a b)
+    let fty = _TFun tva (_TFun tvb tvb) in
+    let ty = _TFun fty (_TFun tvb (_TFun (tylist tva) tvb)) in
+    let cell = mkefree "cell" in
+    tylam2 tya tyb 
+      (_Fix vfold ty 
+         (lam3 f fty z tvb l (tylist tva) 
+            (_Case
+               (_Unfold (tylist tva) (_Var l))
+               ignore (_Var z)
+               cell 
+               (app2 (_Var f)
+                  (_Project (_Var cell) Left) 
+                  (app3 (_Var vfold) 
+                     (_Var f) 
+                     (_Var z) 
+                     (_Project (_Var cell) Right))))))
 
-  let eappend = tylam1 "a" (lam2 "x" (tylist tya) "y" (tylist tya) (
-      fold tya (tylist tya) (tyapp1 (Var "cons") tya)
-        (Var "y") 
-        (Var "x")    
+  let fold a b = app3 (tyapp2 (_Var vfold) a b)
+
+  let vappend = mkefree "append"
+  let eappend = tylam1 tya (lam2 x (tylist tva) y (tylist tva) (
+      fold tva (tylist tva) (tyapp1 (_Var vcons) tva)
+        (_Var y)
+        (_Var x)
     ))
-  let eflatten = tylam1 "a" (lam1 "x" (tylist (tylist tya)) (
-      fold (tylist tya) (tylist tya) 
-        (tyapp1 (Var "append") tya) 
-        (nil tya) 
-        (Var "x")
+  let vflatten = mkefree "flatten"
+  let eflatten = tylam1 tya (lam1 x (tylist (tylist tva)) (
+      fold (tylist tva) (tylist tva) 
+        (tyapp1 (_Var vappend) tva) 
+        (nil tva) 
+        (_Var x)
     ))
-  let eforeach = tylam2 "a" "b" (lam2 "f" (TFun (tya, tyb)) "l" (tylist tya) (
-      fold tya (tylist tyb)
-        (lam2 "x" tya "xs" (tylist tyb) 
-           (cons tyb (app1 (Var "f") (Var "x")) (Var "xs")))
-        (nil tyb) 
-        (Var "l")
+  let vforeach = mkefree "foreach"
+  let eforeach = tylam2 tya tyb (lam2 f (_TFun tva tvb) l (tylist tva) (
+      fold tva (tylist tvb)
+        (lam2 x tva xs (tylist tvb) 
+           (cons tvb (app1 (_Var f) (_Var x)) (_Var xs)))
+        (nil tvb) 
+        (_Var l)
     ))
 
-  let ejoin = lam1 "l" (tylist TString) (
-      fold TString TString
-        (lam2 "x" TString "y" TString (Concat (Var "x", Var "y")))
-        (EString "") 
-        (Var "l")
+  let vjoin = mkefree "join"
+  let ejoin = lam1 l (tylist _TString) (
+      fold _TString _TString
+        (lam2 x _TString y _TString (_Concat (_Var x) (_Var y)))
+        (_EString "") 
+        (_Var l)
     )
 
   let prelude = [
-    ("nil", enil);
-    ("cons", econs);
-    ("fold", efold);
-    ("append", eappend);
-    ("flatten", eflatten);
-    ("foreach", eforeach);
-    ("join", ejoin)
+    (vnil, enil);
+    (vcons, econs);
+    (vfold, efold);
+    (vappend, eappend);
+    (vflatten, eflatten);
+    (vforeach, eforeach);
+    (vjoin, ejoin) 
   ]
 
-  let join = app1 (Var "join")
-  let append a = app2 (tyapp1 (Var "append") a)
-  let flatten a = app1 (tyapp1 (Var "flatten") a)
-  let foreach a b = app2 (tyapp2 (Var "foreach") a b)
+  let join = app1 (_Var vjoin)
+  let append a = app2 (tyapp1 (_Var vappend) a)
+  let flatten a = app1 (tyapp1 (_Var vflatten) a)
+  let foreach a b = app2 (tyapp2 (_Var vforeach) a b)
   let list a l = List.fold_right (cons a) l (nil a)
 
-  let with_prelude e = List.fold_right (fun (v, f) e -> Let(v, f, e)) prelude e 
+  let with_prelude e = List.fold_right (fun (v, f) e -> _Let v f e) prelude e 
 end
 
 (* D^String_TLit level of the document calculus.
    Adds the simplest kind of template: string template literals. *)
-module DStrTLit = struct
+(* module DStrTLit = struct
   open DStrLit
   open Prelude
 
@@ -411,16 +583,16 @@ module DStrTLit = struct
   type Expr.t += StrTmpl of Template.t
 
   let desugar_template (ty, t) = match t with 
-    | [] -> nil ty 
+    | [] -> nil (Type.lift ty)
     | lt :: lts -> Template.desugar_in_context (ty, lt, lts)
 
   let desugar_tpart_in_context (ty, p, ps) = 
-    cons ty (Template.desugar_part (ty, p)) (desugar_template (ty, ps))
+    cons (Type.lift ty) (Template.desugar_part (ty, p)) (desugar_template (ty, ps))
 
   let desugar_expr = function StrTmpl t -> join (desugar_template (TString, t))
 
   let desugar_tpart (ty, p) = match (ty, p) with
-    | (TString, TStr s) -> EString s
+    | (TString, TStr s) -> _EString s
     | (_, TExpr e) -> Expr.desugar e    
 
   let ctx_tpl_ty ctx = List.find_map 
@@ -430,7 +602,7 @@ module DStrTLit = struct
   let typecheck_template (ctx, t) = 
     let ty = ctx_tpl_ty ctx in
     match t with 
-    | [] -> tylist ty
+    | [] -> tylist (Type.lift ty)
     | p :: ps -> Template.typecheck_in_context (ctx, p, ps)      
 
   let typecheck_tpart (ctx, p) = 
@@ -448,7 +620,7 @@ module DStrTLit = struct
 
   let typecheck (ctx, e) = match e with 
       StrTmpl t -> 
-      if typecheck_template (TplCtx TString :: ctx, t) = tylist TString then
+      if typecheck_template (TplCtx TString :: ctx, t) = tylist _TString then
         TString
       else raise (Type_error "typecheck")
 
@@ -471,11 +643,11 @@ module DStrTLit = struct
 end
 let register_dstrtlit () =
   Expr.register (module DStrTLit);
-  Template.register (module DStrTLit)
+  Template.register (module DStrTLit) *)
 
 (* D^String_TProg level of the document calculus.
    Adds set, foreach, if, and splice as template parts. *)
-module DStrTProg = struct
+(*module DStrTProg = struct
   open DStrProg
   open DStrTLit
   open Prelude
@@ -537,4 +709,4 @@ module DStrTProg = struct
   let desugar_tpart = Open_func.noop
 end
 let register_dstrtprog () = 
-  Template.register (module DStrTProg)
+  Template.register (module DStrTProg) *)

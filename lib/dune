@@ -1,4 +1,4 @@
 (library
  (name document_calculus)
- (libraries ppx_deriving.std)
+ (libraries ppx_deriving.std bindlib)
  (preprocess (pps ppx_deriving.show)))
