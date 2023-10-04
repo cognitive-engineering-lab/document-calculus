@@ -1,24 +1,19 @@
 (lang dune 3.6)
 
-(name model)
+(name document_calculus)
 
 (generate_opam_files true)
 
 (source
- (github username/reponame))
+ (github cognitive-engineering-lab/document-calculus))
 
-(authors "Author Name")
+(authors "Will Crichton")
 
-(maintainers "Maintainer Name")
-
-(license LICENSE)
+(license "MIT" "Apache-2.0")
 
 (documentation https://url/to/documentation)
 
 (package
- (name model)
- (synopsis "A short synopsis")
- (description "A longer description")
- (depends ocaml dune)
- (tags
-  (topics "to describe" your project)))
+ (name document_calculus)
+ (synopsis "Accompanying materials for \"A Core Calculus for Documents\" (Crichton and Krishnamurthi 2024).")
+ (depends ocaml dune))

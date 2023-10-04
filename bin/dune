@@ -1,4 +1,4 @@
 (executable
- (public_name model)
+ (public_name document_calculus)
  (name main)
- (libraries model))
+ (libraries document_calculus))

@@ -1,7 +1,7 @@
-open Model.Base
-open Model.String
-open Model.Article
-open Model.Extensions
+open Document_calculus.Base
+open Document_calculus.String
+open Document_calculus.Article
+open Document_calculus.Extensions
 
 let main () =    
   (*** DStrLit tests ***)
@@ -73,13 +73,13 @@ let main () =
   let open DTreeTProgNested in
   register_dtreeprognested ();  
   let e = with_prelude (FragTpl [TNode ("p", [], [
-    TStr "Hello";
-    TSet ("world", ftext (EString "World"));
-    TExpr (Var "world");
-    TForeach (
-      list TString [EString "?"; EString "!"], "x", TString,
-      [TNode ("bold", [], [TExpr (ftext (Var "x"))])]);    
-  ])]) in
+      TStr "Hello";
+      TSet ("world", ftext (EString "World"));
+      TExpr (Var "world");
+      TForeach (
+        list TString [EString "?"; EString "!"], "x", TString,
+        [TNode ("bold", [], [TExpr (ftext (Var "x"))])]);    
+    ])]) in
   assert (Expr.typecheck ([], Expr.desugar e) = tylist tynode);
   assert (Expr.typecheck ([], e) = tylist tynode);
   assert (Expr.desugar_eval e = expected);
@@ -87,20 +87,20 @@ let main () =
 
   (*** References extension tests ***)
   let mk_doc id = NNode("article", [], [
-    NNode ("ref", [("target", id)], []);
-    NNode ("section", [("id", "intro")], [
-      NNode ("h1", [], [NText "Introduction"]);
-      NNode ("section", [("id", "contributions")], []);
-      NNode ("section", [("id", "caveats")], [])
-    ]);
-    NNode ("section", [("id", "discussion")], []);
-  ]) in
+      NNode ("ref", [("target", id)], []);
+      NNode ("section", [("id", "intro")], [
+          NNode ("h1", [], [NText "Introduction"]);
+          NNode ("section", [("id", "contributions")], []);
+          NNode ("section", [("id", "caveats")], [])
+        ]);
+      NNode ("section", [("id", "discussion")], []);
+    ]) in
   assert (section_ids (mk_doc "") = [
-    ("intro", [1]); 
-    ("contributions", [1; 1]); 
-    ("caveats", [2; 1]);
-    ("discussion", [2])
-  ]);
+      ("intro", [1]); 
+      ("contributions", [1; 1]); 
+      ("caveats", [2; 1]);
+      ("discussion", [2])
+    ]);
 
   let d = mk_doc "intro" in
   assert (valid (section_ids d) d);
@@ -122,11 +122,11 @@ let main () =
     NText "postscript"
   ] in
   assert (reforest d [] = [
-    NNode ("para", [], [NText "hello"; NText "world"]);
-    NNode ("para", [], [NText "middle"]);
-    NNode ("h1", [], [NNode ("para", [], [NText "header"])]);
-    NNode ("para", [], [NText "postscript"])
-  ]);
+      NNode ("para", [], [NText "hello"; NText "world"]);
+      NNode ("para", [], [NText "middle"]);
+      NNode ("h1", [], [NNode ("para", [], [NText "header"])]);
+      NNode ("para", [], [NText "postscript"])
+    ]);
 
 
   (*** Reactive extension tests ***)
@@ -141,12 +141,12 @@ let main () =
   let v0 = 
     let inner_ctr = counter (fun c -> RText c) in
     RInstance 
-    (instantiate (counter (fun c -> 
-      RNode ("para", [], [
-        RText c;
-        RInstance (instantiate inner_ctr [("mark", "@")])
-      ])))
-    [("mark", "|")]) in
+      (instantiate (counter (fun c -> 
+           RNode ("para", [], [
+               RText c;
+               RInstance (instantiate inner_ctr [("mark", "@")])
+             ])))
+          [("mark", "|")]) in
 
   let a0 = doc_view v0 in
   assert (a0 = NNode ("para", [], [NText ""; NText ""]));  
@@ -154,7 +154,7 @@ let main () =
   let v1 = doc_step [(0, "click")] v0 in
   let a1 = doc_view v1 in
   assert (a1 = NNode ("para", [], [NText ""; NText "@"]));
-  
+
   let v2 = doc_step [(1, "click")] v1 in
   let a2 = doc_view v2 in
   assert (a2 = NNode ("para", [], [NText "|"; NText "@"]));
