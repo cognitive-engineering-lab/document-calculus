@@ -58,10 +58,10 @@ let main () =
   assert (Expr.eq (Expr.eval_top (desugar_with_prelude e)) (EString "acbc"));  
 
 
-  (*** DTreeTProg tests ***)
-  let open DTreeProg in
-  let open DTreeTProg in
-  register_dtreetprog ();
+  (*** DArtTProg tests ***)
+  let open DArtProg in
+  let open DArtTProg in
+  register_darttprog ();
   let mk_tpl textfn = _Template [_TplNode "p" [] (_Template [
       _TplStr "Hello";
       _TplSet world (textfn (_EString "World"));
@@ -83,9 +83,9 @@ let main () =
   assert (Expr.eq (Expr.eval_top (desugar_with_prelude e)) expected);
 
 
-  (*** DTreeTProgNested tests ***)
-  let open DTreeTProgNested in
-  register_dtreeprognested ();  
+  (*** DArtTProgNested tests ***)
+  let open DArtTProgNested in
+  register_dartprognested ();  
   let e = _FragTpl (mk_tpl ftext) in  
   assert (Type.eq (Expr.typecheck_top (desugar_with_prelude e)) (unbox (tylist tynode)));
   assert (Type.eq (Expr.typecheck_top (with_prelude e)) (unbox (tylist tynode)));
@@ -93,6 +93,8 @@ let main () =
 
 
   (*** References extension tests ***)
+  let open Node in 
+  let open References in
   let mk_doc id = NNode("article", [], [
       NNode ("ref", [("target", id)], []);
       NNode ("section", [("id", "intro")], [
@@ -120,6 +122,7 @@ let main () =
 
 
   (*** Reforestation extension tests ***)
+  let open Reforestation in
   let d = [
     NText "hello";
     NText "world";
@@ -137,7 +140,8 @@ let main () =
 
 
   (*** Reactive extension tests ***)
-  let open React in  
+  let open Reactivity in  
+  let open T in
   let counter child = 
     let id = gen_comp_id () in
     let init p = (List.assoc "mark" p, "") in

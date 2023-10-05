@@ -1,46 +1,64 @@
 [@@@warning "-partial-match"]
 
+(* This module provides the D^Article levels of the document calculus.contents
+
+   Note: we do not implement an OCaml model for D^Article_Lit or D^Article_TLit, 
+   as neither have any actual implementation details.
+*)
+
 open Base
 open String
 open Bindlib
 
-(* Note: we do not implement an OCaml model for D^Article_Lit or D^Article_TLit, as neither
-   have any actual implementation details.*)
-
 (* D^Article_Prog level of the document calculus. 
-   Adds a standard library of node types for attributed, tagged trees. *)
-module DTreeProg = struct
+   Adds a standard library of node types for attributed, tagged trees. 
+   Does not require any changes to the language. *)
+module DArtProg = struct
   open DStrLit
   open DStrProg
   open Prelude
 
+  (* Type of node attributes. *)
   let tyattr = _TProd _TString _TString
+
+  (* Type of the interior of a node. *)
   let tystructnode ty = _TProd _TString (_TProd (tylist tyattr) ty)
 
-  let node = mktfree "node"
-  let tynode = _TRec node (_TSum _TString (tystructnode (tylist (_TVar node))))
+  (* Type of a document node. *)
+  let tynode = 
+    let node = mktfree "node" in
+    _TRec node (_TSum _TString (tystructnode (tylist (_TVar node))))
+
+  (* The recursive type unfolded. *)
   let tynodebody = _TSum _TString (tystructnode (tylist tynode))
+
   let nodelist = list tynode
 
+  (* Constructors for text nodes and recursive nodes. *)
   let text e = _Fold tynode (_Inject Left tynodebody e)
   let node nt at e = _Fold tynode (_Inject Right tynodebody (_Pair nt (_Pair at e)))
 end
 
 (* D^Article_TProg level of the document calculus. 
    Adds tree templates with support for all the template parts in D^String_TProg. *)
-module DTreeTProg = struct
+module DArtTProg = struct
   open DStrLit
   open DStrProg
-  open DTreeProg
+  open DArtProg
   open DStrTLit
   open Prelude
 
+  (* We extend the template language with attributes nodes. In a concrete syntax, you
+     might write one like: <span style="color:red">Hello world!</span> *)
   type Template.part += 
       TplNode of string * (string * Expr.t) list * Template.t
 
+  (* We extend the expression language with tree templates, which are like
+     string templates but they desugar to trees instead of strings. *)
   type Expr.t += 
       TreeTmpl of Template.t
 
+  (* Smart constructors for Bindlib. *)
   let _TplNode : string -> (string * Expr.t box) list -> Template.t box -> Template.part box = 
     fun nt attrs children ->
     let (keys, vals) = List.split attrs in
@@ -48,15 +66,19 @@ module DTreeTProg = struct
         let attrs = List.combine keys vals in
         TplNode (nt, attrs, children)
       ) (box_list vals) children    
-
   let _TreeTmpl : Template.t box -> Expr.t box = box_apply (fun t -> TreeTmpl t)
 
+  (* Desugaring a tree template does not require adding a join,
+     unlike desugaring a string template. *)
   let desugar_expr = function 
     | TreeTmpl t -> desugar_template (unbox tynode, t)
 
   let desugar_attrs at = 
     (list tyattr (List.map (fun (k, v) -> _Pair (_EString k) (Expr.desugar v)) at))
 
+  (* This is where our TplCtx type comes into play. When we see a TplStr,
+     we know to make it a node rather than a plain string 
+     if we're in a `tynode` context. *)
   let desugar_tpart (ty, p) = 
     let in_ctx = Type.eq ty (unbox tynode) in
     match p with
@@ -68,8 +90,9 @@ module DTreeTProg = struct
         (desugar_template (ty, children))
 
   let typecheck (ctx, e) = match e with 
-    | TreeTmpl t -> 
-      if Type.unbox_eq (typecheck_template (TplCtx tynode :: ctx, t)) (tylist tynode) then tylist tynode
+    | TreeTmpl tpl -> 
+      let t = (typecheck_template (TplCtx tynode :: ctx, tpl)) in
+      if Type.unbox_eq t (tylist tynode) then tylist tynode
       else raise (Type_error "tree template")
 
   let typecheck_tpart (ctx, p) = 
@@ -77,16 +100,16 @@ module DTreeTProg = struct
     match p with
     | TplNode (_, attrs, children) ->
       List.iter (fun (_, v) -> 
-          if not (Type.unbox_eq (Expr.typecheck (ctx, v)) ty) then raise (Type_error "attrs")) attrs;
+          if not (Type.unbox_eq (Expr.typecheck (ctx, v)) ty) then 
+            raise (Type_error "attrs")) 
+        attrs;
       if Type.unbox_eq (typecheck_template (ctx, children)) (tylist ty) then ty 
       else raise (Type_error "children")      
-
-  let typecheck_tpart_in_context = Open_func.noop
 
   (* Boring code *)
 
   let show_template = function
-    | TplNode (nt, _ (* TODO *), kt) -> Printf.sprintf "<%s>%s</%s>" nt (show_ttext kt) nt
+    | TplNode (nt, _, kt) -> Printf.sprintf "<%s>%s</%s>" nt (show_ttext kt) nt
 
   let show_expr (_ctx, e) = match e with 
     | TreeTmpl kt -> show_ttext kt
@@ -104,27 +127,34 @@ module DTreeTProg = struct
   let eq_expr = function 
     | (TreeTmpl _, _) | (_, TreeTmpl _) -> raise Not_desugared
 
-  let desugar_tpart_in_context = Open_func.noop  
+  let desugar_tpart_in_context = Open_func.noop 
+  let typecheck_tpart_in_context = Open_func.noop 
 end
-let register_dtreetprog () =
-  Expr.register (module DTreeTProg);
-  Template.register (module DTreeTProg)
+let register_darttprog () =
+  Expr.register (module DArtTProg);
+  Template.register (module DArtTProg)
 
 (* Implementation of the "fragment" strategy for D^Article_TProg. *)
-module DTreeTProgNested = struct
+module DArtTProgNested = struct
   open DStrLit
   open DStrTLit
   open DStrProg
-  open DTreeTProg
+  open DArtTProg
   open DStrTProg
-  open DTreeProg
+  open DArtProg
   open Prelude
 
+  (* Add a new FragTpl expression which is like TreeTpl but uses the alternative
+      desugaring strategy. It still desugars to terms of the same type. *)
   type Expr.t += 
     | FragTpl of Template.t
 
   let _FragTpl = box_apply (fun t -> FragTpl t)
 
+  (* Lots of type definitions... it's a little obscured due to the embedding 
+     in System F. To see a clearer presentation, either:
+     - Check out the symbolic formalism in Section 3.2.4 of the paper.
+     - Check out extensions.ml for an OCaml embedding of the types and elim_frags code. *)
   let tree = mktfree "tree"
   let tyfrag t = _TRec tree (_TSum t (tylist (_TVar tree)))
   let tyfragbody t = _TSum t (tylist (tyfrag t))
@@ -141,7 +171,6 @@ module DTreeTProgNested = struct
   let ftext e = fragbase tyfnode (_Fold tyfnode (_Inject Left tyfnodebody e))
   let fnode nt at e = fragbase tyfnode (_Fold tyfnode (_Inject Right tyfnodebody (_Pair nt (_Pair at e))))
 
-  (* A more readable version of this function (and the above typedefs) is in extensions.ml. *)
   let elim_fragsv = mkefree "elim_frags"
   let elim_frags = 
     let (fl, base, textv, nd, listv) = (mkefree "fl", mkefree "base", mkefree "text", mkefree "nd", mkefree "list") in
@@ -203,7 +232,6 @@ module DTreeTProgNested = struct
   let lift_part = Open_func.noop    
   let typecheck_tpart_in_context = Open_func.noop
 end
-
-let register_dtreeprognested () =
-  Expr.register (module DTreeTProgNested);
-  Template.register (module DTreeTProgNested)
+let register_dartprognested () =
+  Expr.register (module DArtTProgNested);
+  Template.register (module DArtTProgNested)

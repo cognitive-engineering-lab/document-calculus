@@ -15,8 +15,8 @@ module DStrLit = struct
   type Type.t += 
     | TString
 
-  let _EString : string -> Expr.t box = 
-    fun s -> box (EString s)
+  (* Constructor functions needed for Bindlib integration. *)
+  let _EString : string -> Expr.t box = fun s -> box (EString s)
   let _TString = box TString
 
   (* The eval and typecheck functions are straightforward. *)
