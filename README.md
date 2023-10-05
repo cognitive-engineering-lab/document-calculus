@@ -12,20 +12,39 @@ This artifact implements each aspect of the model in OCaml. Our main goal in the
 
 ## Getting Started
 
-### I'm in a hurry
+### From Docker
 
-You need [opam]. Copy this script:
+If you are downloading a Docker image from Zenodo, first: make sure to pick the image that corresponds to your architecture. That's `arm64` for an ARM machine (e.g., an M-series Mac), and `amd64` otherwise.
+
+Then run the following command, replacing `<ARCH>` with either `arm64` or `amd64`:
+
+```
+docker load -i document-calculus-popl24-<ARCH>.tar.gz
+```
+
+Then start the image and run the tests as follows:
+
+```
+$ docker run -ti document-calculus-popl24:<ARCH> bash
+opam@4fb288bee717:/app$ opam exec -- dune test
+```
+
+### From Source
+
+#### I'm in a hurry
+
+You need [opam]. Run this script:
 
 ```
 opam switch create 4.13.1 --yes
 eval $(opam env --switch=4.13.1)
-opam install . --deps-only --yes
+opam install . --deps-only --locked --yes
 opam exec -- dune test
 ```
 
-### I have some time
+#### I have some time
 
-First, you need the OCaml package manager [opam]. This artifact was last tested with opam version 2.1.3.
+In greater detail: first, you need the OCaml package manager [opam]. This artifact was last tested with opam version 2.1.3.
 
 Then, you need OCaml. This artifact was last tested with OCaml version 4.13.1. You can install the version by running:
 
