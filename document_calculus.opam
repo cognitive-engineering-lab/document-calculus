@@ -12,6 +12,7 @@ depends: [
   "ocaml"
   "dune" {>= "3.6"}
   "ppx_deriving"
+  "bindlib"
   "odoc" {with-doc}
 ]
 build: [

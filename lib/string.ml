@@ -1,43 +1,48 @@
 [@@@warning "-partial-match"]
 
+(* This module provides the D^String levels of the document calculus.
+   I recommend skipping to DStrTLit if you want to see the interesting parts. *)
+
 open Base
 open Bindlib
-
-module StdString = Stdlib.String
 
 (* D^String_Lit level of the document calculus.
    String literals are the only kind of expression, and strings are the only kind of type. *)
 module DStrLit = struct
   (* We add string expressions and string types. *)
-  type Expr.t += EString of string
-  type Type.t += TString
+  type Expr.t += 
+    | EString of string
+  type Type.t += 
+    | TString
+
+  let _EString : string -> Expr.t box = 
+    fun s -> box (EString s)
+  let _TString = box TString
 
   (* The eval and typecheck functions are straightforward. *)
-  let eval = function EString s -> EString s
-  let typecheck (_, e) = match e with EString _ -> TString
+  let eval = function 
+    | EString s -> EString s
+  let typecheck (_, e) = match e with 
+    | EString _ -> _TString
 
   (* Many other functions that you can ignore.
      Some of these will be useful later, but for now we are just
      defining the uninteresting case of strings. *)
 
-  let show_expr (_, e) =  match e with EString s -> Printf.sprintf "\"%s\"" s
-
-  let show_type (_, ty) = match ty with TString -> "string"
-  
-  let _EString : string -> Expr.t box = 
-    fun s -> box (EString s)
-
-  let desugar_expr = function EString s -> _EString s
-
-  let lift_expr = function EString s -> _EString s
-
-  let _TString = box TString
-
-  let lift_type = function TString -> _TString
-
-  let eq_type = function (TString, TString) -> true
-
-
+  let show_expr (_, e) =  match e with 
+    | EString s -> Printf.sprintf "\"%s\"" s
+  let show_type (_, ty) = match ty with 
+    | TString -> "string"
+  let desugar_expr = function 
+    | EString s -> _EString s
+  let lift_expr = function 
+    | EString s -> _EString s
+  let lift_type = function 
+    | TString -> _TString
+  let eq_expr = function
+    | (EString s1, EString s2) -> s1 = s2
+  let eq_type = function 
+    | (TString, TString) -> true
 end
 
 (* Call this function to load this language fragment into the open functions. *)
@@ -79,7 +84,7 @@ module DStrProg = struct
     | Unpack of Expr.t * (Expr.t, (Type.t, Expr.t) binder) binder
 
   type Type.ctx_elem += 
-    | BoundVar of Expr.var * Type.t 
+    | BoundVar of Expr.var * Type.t box
     | BoundTypeVar of Type.var
 
   type Type.t +=
@@ -96,6 +101,61 @@ module DStrProg = struct
      It mostly looks like you would find in e.g. TAPL. 
      Most of the idiosyncracies (like the huge number of constructor functions)
      are due to requirements of Bindlib. *)
+
+  let mkefree = new_var (fun x -> Var x)
+  let mktfree = new_var (fun x -> TVar x)
+
+  let _Var : Expr.t var -> Expr.t box = 
+    box_var
+  let _Concat : Expr.t box -> Expr.t box -> Expr.t box = 
+    box_apply2 (fun a b -> Concat (a, b))
+  let _Let : Expr.t var -> Expr.t box -> Expr.t box -> Expr.t box =
+    fun x e1 e2 -> box_apply2 (fun e1 e2 -> Let (e1, e2)) e1 (bind_var x e2)
+  let _App : Expr.t box -> Expr.t box -> Expr.t box = 
+    box_apply2 (fun a b -> App (a, b))
+  let _Lambda :  Expr.t var -> Type.t box -> Expr.t box -> Expr.t box =
+    fun x t e -> box_apply2 (fun t e -> Lambda (t, e)) t (bind_var x e)
+  let _TyLambda : Type.t var -> Expr.t box -> Expr.t box =
+    fun a e -> box_apply (fun e -> TyLambda e) (bind_var a e)
+  let _TyApp : Expr.t box -> Type.t box -> Expr.t box =
+    box_apply2 (fun e t -> TyApp (e, t))
+  let _Unit : Expr.t box =
+    box Unit
+  let _Pair : Expr.t box -> Expr.t box -> Expr.t box =
+    box_apply2 (fun a b -> Pair (a, b))
+  let _Project : Expr.t box -> dir -> Expr.t box =
+    fun e d -> box_apply (fun e -> Project (e, d)) e
+  let _Fold : Type.t box -> Expr.t box -> Expr.t box =
+    box_apply2 (fun t e -> Fold (t, e))
+  let _Unfold : Type.t box -> Expr.t box -> Expr.t box =
+    box_apply2 (fun t e -> Unfold (t, e))
+  let _Fix : Expr.t var -> Type.t box -> Expr.t box -> Expr.t box =
+    fun x t e -> box_apply2 (fun t e -> Fix (t, e)) t (bind_var x e)    
+  let _Pack : Type.t box -> Expr.t box -> Type.t box -> Expr.t box =
+    box_apply3 (fun t1 e t2 -> Pack (t1, e, t2))
+  let _Unpack : Expr.t var -> Type.t var -> Expr.t box -> Expr.t box -> Expr.t box =
+    fun x a e1 e2 -> box_apply2 (fun e1 e2 -> Unpack (e1, e2)) e1 (bind_var x (bind_var a e2))
+  let _Inject : dir -> Type.t box -> Expr.t box -> Expr.t box =
+    fun d t e -> box_apply2 (fun t e -> Inject (d, t, e)) t e
+  let _Case : Expr.t box -> Expr.t var -> Expr.t box -> Expr.t var -> Expr.t box -> Expr.t box =
+    fun expr x left y right -> 
+    box_apply3 (fun expr left right  -> Case {expr; left; right}) expr (bind_var x left) (bind_var y right)  
+
+  let _TUnit : Type.t box = box TUnit
+  let _TProd : Type.t box -> Type.t box -> Type.t box =
+    box_apply2 (fun a b -> TProd (a, b))
+  let _TSum : Type.t box -> Type.t box -> Type.t box =
+    box_apply2 (fun a b -> TSum (a, b))
+  let _TFun : Type.t box -> Type.t box -> Type.t box =
+    box_apply2 (fun a b -> TFun (a, b))
+  let _TForall : Type.t var -> Type.t box -> Type.t box =
+    fun a t -> box_apply (fun t -> TForall t) (bind_var a t)
+  let _TRec : Type.t var -> Type.t box -> Type.t box =
+    fun a t -> box_apply (fun t -> TRec t) (bind_var a t)
+  let _TExists : Type.t var -> Type.t box -> Type.t box =
+    fun a t -> box_apply (fun t -> TExists t) (bind_var a t)
+  let _TVar : Type.t var -> Type.t box =
+    box_var    
 
   let eval = function
     | Concat (e1, e2) -> 
@@ -133,100 +193,6 @@ module DStrProg = struct
       let Pack (t, v, _) = Expr.eval e1 in
       Expr.eval (subst (subst e2 v) t)      
 
-  let typecheck (ctx, e) = match e with 
-    | Concat (e1, e2) -> 
-      let (t1, t2) = (Expr.typecheck (ctx, e1), Expr.typecheck (ctx, e2)) in
-      (match (t1, t2) with
-       | (TString, TString) -> TString
-       | _ -> raise (Type_error "concat"))
-    | Let (e1, e2) -> 
-      let t1 = Expr.typecheck (ctx, e1) in
-      let (x, e2') = unbind e2 in
-      Expr.typecheck ((BoundVar (x, t1)) :: ctx, e2')
-    | Fix (t, e) ->
-      let (x, e') = unbind e in
-      Expr.typecheck ((BoundVar (x, t)) :: ctx, e')
-    | Var x -> 
-      let ty_opt = List.find_map (fun elem -> match elem with 
-          | BoundVar (y, t) -> 
-            if eq_vars x y then Some t else None
-          | _ -> None) ctx in 
-      (match ty_opt with
-       | Some ty -> ty
-       | None -> raise (Type_error (Printf.sprintf "Var: %s" (name_of x))))
-    | Inject (dir, t, e') -> 
-      let t' = Expr.typecheck (ctx, e') in
-      let t'' = (match (dir, t) with 
-          | (Left, TSum (t'', _)) ->  t''
-          | (Right, TSum (_, t'')) -> t''
-          | _ -> raise (Type_error (Printf.sprintf "inject: not a sum: %s" (Expr.show e)))) in
-      if Type.eq t' t'' then t else raise (Type_error (Printf.sprintf "inject: %s != %s" (Type.show t') (Type.show t'')))
-    | Case {expr; left; right} ->
-      let t = Expr.typecheck (ctx, expr) in
-      (match t with
-       | TSum (t1, t2) -> 
-         let (x, left') = unbind left in
-         let (y, right') = unbind right in
-         let t1' = Expr.typecheck ((BoundVar (x, t1)) :: ctx, left') in
-         let t2' =  Expr.typecheck ((BoundVar (y, t2)) :: ctx, right') in
-         if Type.eq t1' t2' then t1' else raise (Type_error (Printf.sprintf "case: %s != %s" (Type.show t1') (Type.show t2')))
-       | _ -> raise (Type_error "case"))
-    | Lambda (t, e) -> 
-      let (x, e') = unbind e in
-      let t' = Expr.typecheck ((BoundVar (x, t)) :: ctx, e') in
-      TFun (t, t')
-    | App (e1, e2) -> 
-      let t1 = Expr.typecheck (ctx, e1) in 
-      let t2 = Expr.typecheck (ctx, e2) in
-      (match t1 with
-       | TFun (t1', t1'') -> if Type.eq t1' t2 then t1'' else raise (Type_error (Printf.sprintf "app: %s : %s != %s : %s" (Expr.show e1) (Type.show t1') (Expr.show e2) (Type.show t2)))
-       | _ -> raise (Type_error "app"))
-    | Pair (e1, e2) -> 
-      let t1 = Expr.typecheck (ctx, e1) in
-      let t2 = Expr.typecheck (ctx, e2) in 
-      TProd (t1, t2)
-    | Project (e, d) ->
-      let t = Expr.typecheck (ctx, e) in
-      (match t with
-       | TProd (t1, t2) -> (match d with Left -> t1 | Right -> t2)
-       | _ -> raise (Type_error (Printf.sprintf "project from non-product: %s" (Type.show t))))
-    | Fold (t, e) ->
-      let TRec t0 = t in      
-      let t2 = Expr.typecheck (ctx, e) in
-      let t3 = subst t0 t in
-      if  Type.eq t2 t3 then t else raise (Type_error (Printf.sprintf "fold: %s != %s" (Type.show t2) (Type.show t3)))
-    | Unfold (t, e) ->
-      let TRec t0 = t in
-      let t1 = Expr.typecheck (ctx, e) in
-      if Type.eq t t1 then subst t0 t else raise (Type_error "unfold")
-    | TyLambda e -> 
-      let (alpha, e') = unbind e in
-      let t = Expr.typecheck ((BoundTypeVar alpha) :: ctx, e') in
-      TForall (unbox (bind_var alpha (Type.lift t)))
-    | TyApp (e, t) ->
-      let t0 = Expr.typecheck (ctx, e) in
-      (match t0 with
-       | TForall t1 -> 
-         subst t1 t
-       | _ -> raise (Type_error "tyapp"))
-    | Unit -> TUnit    
-    | Pack (t1, e, t2ex) ->
-      let TExists t2 = t2ex in
-      if Type.eq (Expr.typecheck (ctx, e)) (subst t2 t1) then t2ex 
-      else raise (Type_error "pack")
-    | Unpack (e1, e2) ->
-      (match Expr.typecheck (ctx, e1) with
-       | TExists t0 ->
-         let (alpha, t1) = unbind t0 in
-         let (x, e3) = unbind e2 in
-         let ctx' = (BoundTypeVar alpha) :: (BoundVar (x, t1)) :: ctx in
-         Expr.typecheck (ctx', (subst e3 (TVar alpha)))
-       | _ -> raise (Type_error "unpack"))
-
-  (* let map_binder f b  =
-    let (x, inner) = unbind b in
-    unbox (bind_var x (Expr.lift (f inner))) *)
-
   let eq_type = function
     | (TFun (t1, t2), TFun (t1', t2')) -> Type.eq t1 t1' && Type.eq t2 t2'
     | (TProd (t1, t2), TProd (t1', t2')) -> Type.eq t1 t1' && Type.eq t2 t2'
@@ -236,6 +202,26 @@ module DStrProg = struct
     | (TExists t1, TExists t2) -> eq_binder Type.eq t1 t2
     | (TRec t1, TRec t2) -> eq_binder Type.eq t1 t2
     | (TVar x, TVar y) -> eq_vars x y
+
+  let eq_expr = function
+    | (Concat (e1, e2), Concat (e1', e2')) -> Expr.eq e1 e1' && Expr.eq e2 e2'
+    | (Let (e1, e2), Let (e1', e2')) -> Expr.eq e1 e1' && eq_binder Expr.eq e2 e2'
+    | (Fix (t, e), Fix (t', e')) -> Type.eq t t' && eq_binder Expr.eq e e'
+    | (Var x, Var y) -> eq_vars x y
+    | (Inject (d, t, e), Inject (d', t', e')) -> d = d' && Type.eq t t' && Expr.eq e e'
+    | (Case {expr; left; right}, Case {expr = expr'; left = left'; right = right'}) -> 
+      Expr.eq expr expr' && eq_binder Expr.eq left left' && eq_binder Expr.eq right right'
+    | (Lambda (t, e), Lambda (t', e')) -> Type.eq t t' && eq_binder Expr.eq e e'
+    | (App (e1, e2), App (e1', e2')) -> Expr.eq e1 e1' && Expr.eq e2 e2'
+    | (Unit, Unit) -> true
+    | (Pair (e1, e2), Pair (e1', e2')) -> Expr.eq e1 e1' && Expr.eq e2 e2'
+    | (Project (e, d), Project (e', d')) -> Expr.eq e e' && d = d'
+    | (Fold (t, e), Fold (t', e')) -> Type.eq t t' && Expr.eq e e'
+    | (Unfold (t, e), Unfold (t', e')) -> Type.eq t t' && Expr.eq e e'
+    | (TyLambda e, TyLambda e') -> eq_binder Expr.eq e e'
+    | (TyApp (e, t), TyApp (e', t')) -> Expr.eq e e' && Type.eq t t'
+    | (Pack (t1, e, t2), Pack (t1', e', t2')) -> Type.eq t1 t1' && Expr.eq e e' && Type.eq t2 t2'
+    | (Unpack (e1, e2), Unpack (e1', e2')) -> Expr.eq e1 e1' && eq_binder (eq_binder Expr.eq) e2 e2'        
 
   let show_dir = function Left -> "l" | Right -> "r"
 
@@ -313,61 +299,101 @@ module DStrProg = struct
         Printf.sprintf "rec %s. %s" (name_of x) (Type.show_ctx (ctx, t))
     | TVar x -> name_of x
 
-  let mkefree = new_var (fun x -> Var x)
-  let mktfree = new_var (fun x -> TVar x)
+  let typecheck (ctx, e) = match e with 
+    | Concat (e1, e2) -> 
+      let (t1, t2) = (Expr.typecheck (ctx, e1), (Expr.typecheck (ctx, e2))) in
+      (match (unbox t1, unbox t2) with
+       | (TString, TString) -> _TString
+       | _ -> raise (Type_error "concat"))
+    | Let (e1, e2) -> 
+      let t1 = Expr.typecheck (ctx, e1) in
+      let (x, e2') = unbind e2 in
+      Expr.typecheck ((BoundVar (x, t1)) :: ctx, e2')
+    | Fix (t, e) ->
+      let (x, e') = unbind e in
+      Expr.typecheck ((BoundVar (x, Type.lift t)) :: ctx, e')
+    | Var x -> 
+      let ty_opt = List.find_map (fun elem -> match elem with 
+          | BoundVar (y, t) -> 
+            if eq_vars x y then Some t else None
+          | _ -> None) ctx in 
+      (match ty_opt with
+       | Some ty -> ty
+       | None -> raise (Type_error (Printf.sprintf "Var: %s" (name_of x))))
+    | Inject (dir, t, e') -> 
+      let t' = Expr.typecheck (ctx, e') in
+      let t'' = (match (dir, t) with 
+          | (Left, TSum (t'', _)) ->  t''
+          | (Right, TSum (_, t'')) -> t''
+          | _ -> raise (Type_error (Printf.sprintf "inject: not a sum: %s" (Expr.show e)))) in
+      if Type.eq (unbox t') t'' then Type.lift t 
+      else raise (Type_error (Printf.sprintf "inject: %s != %s" (Type.show (unbox t')) (Type.show t'')))
+    | Case {expr; left; right} ->
+      let t = Expr.typecheck (ctx, expr) in
+      (match unbox t with
+       | TSum (t1, t2) -> 
+         let (x, left') = unbind left in
+         let (y, right') = unbind right in
+         let t1' = Expr.typecheck ((BoundVar (x, Type.lift t1)) :: ctx, left') in
+         let t2' =  Expr.typecheck ((BoundVar (y, Type.lift t2)) :: ctx, right') in
+         if Type.unbox_eq t1' t2' then t1' 
+         else raise (Type_error (Printf.sprintf "case: %s != %s" (Type.show (unbox t1')) (Type.show (unbox t2'))))
+       | _ -> raise (Type_error "case"))
+    | Lambda (t, e) -> 
+      let (x, e') = unbind e in
+      let t' = Expr.typecheck ((BoundVar (x, Type.lift t)) :: ctx, e') in
+      _TFun (Type.lift t) t'
+    | App (e1, e2) -> 
+      let t1 = Expr.typecheck (ctx, e1) in 
+      let t2 = Expr.typecheck (ctx, e2) in
+      (match unbox t1 with
+       | TFun (t1', t1'') -> 
+         if Type.eq t1' (unbox t2) then (Type.lift t1'') 
+         else raise (Type_error (Printf.sprintf "app: %s : %s != %s : %s" (Expr.show e1) (Type.show t1') (Expr.show e2) (Type.show (unbox t2))))
+       | _ -> raise (Type_error "app"))
+    | Pair (e1, e2) -> 
+      let t1 = Expr.typecheck (ctx, e1) in
+      let t2 = Expr.typecheck (ctx, e2) in 
+      _TProd t1 t2
+    | Project (e, d) ->
+      let t = Expr.typecheck (ctx, e) in
+      (match unbox t with
+       | TProd (t1, t2) -> Type.lift (match d with Left -> t1 | Right -> t2)
+       | _ -> raise (Type_error (Printf.sprintf "project from non-product: %s" (Type.show (unbox t)))))
+    | Fold (t, e) ->
+      let TRec t0 = t in      
+      let t2 = Expr.typecheck (ctx, e) in
+      let t3 = subst t0 t in
+      if  Type.eq (unbox t2) t3 then Type.lift t 
+      else raise (Type_error (Printf.sprintf "fold: %s != %s" (Type.show (unbox t2)) (Type.show t3)))
+    | Unfold (t, e) ->
+      let TRec t0 = t in
+      let t1 = Expr.typecheck (ctx, e) in
+      if Type.eq t (unbox t1) then Type.lift (subst t0 t)
+      else raise (Type_error "unfold")
+    | TyLambda e -> 
+      let (alpha, e') = unbind e in
+      let t = Expr.typecheck ((BoundTypeVar alpha) :: ctx, e') in
+      _TForall alpha t      
+    | TyApp (e, t) ->
+      let t0 = Expr.typecheck (ctx, e) in
+      (match (unbox t0) with
+       | TForall t1 -> Type.lift (subst t1 t)
+       | _ -> raise (Type_error "tyapp"))
+    | Unit -> _TUnit    
+    | Pack (t1, e, t2ex) ->
+      let TExists t2 = t2ex in
+      if Type.eq (unbox (Expr.typecheck (ctx, e))) (subst t2 t1) then Type.lift t2ex 
+      else raise (Type_error "pack")
+    | Unpack (e1, e2) ->
+      (match unbox (Expr.typecheck (ctx, e1)) with
+       | TExists t0 ->
+         let (alpha, t1) = unbind t0 in
+         let (x, e3) = unbind e2 in
+         let ctx' = (BoundTypeVar alpha) :: (BoundVar (x, Type.lift t1)) :: ctx in
+         Expr.typecheck (ctx', (subst e3 (TVar alpha)))
+       | _ -> raise (Type_error "unpack"))
 
-  let _Var : Expr.t var -> Expr.t box = 
-    box_var
-  let _Concat : Expr.t box -> Expr.t box -> Expr.t box = 
-    box_apply2 (fun a b -> Concat (a, b))
-  let _Let : Expr.t var -> Expr.t box -> Expr.t box -> Expr.t box =
-    fun x e1 e2 -> box_apply2 (fun e1 e2 -> Let (e1, e2)) e1 (bind_var x e2)
-  let _App : Expr.t box -> Expr.t box -> Expr.t box = 
-    box_apply2 (fun a b -> App (a, b))
-  let _Lambda :  Expr.t var -> Type.t box -> Expr.t box -> Expr.t box =
-    fun x t e -> box_apply2 (fun t e -> Lambda (t, e)) t (bind_var x e)
-  let _TyLambda : Type.t var -> Expr.t box -> Expr.t box =
-    fun a e -> box_apply (fun e -> TyLambda e) (bind_var a e)
-  let _TyApp : Expr.t box -> Type.t box -> Expr.t box =
-    box_apply2 (fun e t -> TyApp (e, t))
-  let _Unit : Expr.t box =
-    box Unit
-  let _Pair : Expr.t box -> Expr.t box -> Expr.t box =
-    box_apply2 (fun a b -> Pair (a, b))
-  let _Project : Expr.t box -> dir -> Expr.t box =
-    fun e d -> box_apply (fun e -> Project (e, d)) e
-  let _Fold : Type.t box -> Expr.t box -> Expr.t box =
-    box_apply2 (fun t e -> Fold (t, e))
-  let _Unfold : Type.t box -> Expr.t box -> Expr.t box =
-    box_apply2 (fun t e -> Unfold (t, e))
-  let _Fix : Expr.t var -> Type.t box -> Expr.t box -> Expr.t box =
-    fun x t e -> box_apply2 (fun t e -> Fix (t, e)) t (bind_var x e)    
-  let _Pack : Type.t box -> Expr.t box -> Type.t box -> Expr.t box =
-    box_apply3 (fun t1 e t2 -> Pack (t1, e, t2))
-  let _Unpack : Expr.t var -> Type.t var -> Expr.t box -> Expr.t box -> Expr.t box =
-    fun x a e1 e2 -> box_apply2 (fun e1 e2 -> Unpack (e1, e2)) e1 (bind_var x (bind_var a e2))
-  let _Inject : dir -> Type.t box -> Expr.t box -> Expr.t box =
-    fun d t e -> box_apply2 (fun t e -> Inject (d, t, e)) t e
-  let _Case : Expr.t box -> Expr.t var -> Expr.t box -> Expr.t var -> Expr.t box -> Expr.t box =
-    fun expr x left y right -> 
-    box_apply3 (fun expr left right  -> Case {expr; left; right}) expr (bind_var x left) (bind_var y right)  
-
-  let _TUnit : Type.t box = box TUnit
-  let _TProd : Type.t box -> Type.t box -> Type.t box =
-    box_apply2 (fun a b -> TProd (a, b))
-  let _TSum : Type.t box -> Type.t box -> Type.t box =
-    box_apply2 (fun a b -> TSum (a, b))
-  let _TFun : Type.t box -> Type.t box -> Type.t box =
-    box_apply2 (fun a b -> TFun (a, b))
-  let _TForall : Type.t var -> Type.t box -> Type.t box =
-    fun a t -> box_apply (fun t -> TForall t) (bind_var a t)
-  let _TRec : Type.t var -> Type.t box -> Type.t box =
-    fun a t -> box_apply (fun t -> TRec t) (bind_var a t)
-  let _TExists : Type.t var -> Type.t box -> Type.t box =
-    fun a t -> box_apply (fun t -> TExists t) (bind_var a t)
-  let _TVar : Type.t var -> Type.t box =
-    box_var    
-  
   let desugar_expr = function
     | Concat (e1, e2) -> _Concat (Expr.desugar e1) (Expr.desugar e2)
     | Let (e1, e2) ->
@@ -407,7 +433,6 @@ module DStrProg = struct
       let (x, e2') = unbind e2 in
       let (a, e2'') = unbind e2' in
       _Unpack x a (Expr.desugar e1) (Expr.desugar e2'')
-
 
   let lift_type = function
     | TFun (t1, t2) -> _TFun (Type.lift t1) (Type.lift t2)
@@ -568,145 +593,240 @@ module Prelude = struct
   let list a l = List.fold_right (cons a) l (nil a)
 
   let with_prelude e = List.fold_right (fun (v, f) e -> _Let v f e) prelude e 
+  let desugar_with_prelude e = with_prelude (Expr.desugar (unbox e))
 end
 
 (* D^String_TLit level of the document calculus.
    Adds the simplest kind of template: string template literals. *)
-(* module DStrTLit = struct
+module DStrTLit = struct
   open DStrLit
   open Prelude
 
-  type Type.ctx_elem += TplCtx of Type.t
+  (* A template is composed of parts. The base parts are strings and expressions.
+     Note that Template.t = Template.part list. *)
+  type Template.part += 
+    | TplStr of string 
+    | TplExpr of Expr.t
 
-  type Template.part += TStr of string | TExpr of Expr.t
+  (* A template is embedded within a string template expression. *)
+  type Expr.t += 
+    | StrTmpl of Template.t
 
-  type Expr.t += StrTmpl of Template.t
+  (* The kind of template being type-checked is added to the type context. 
+     For now we just have string templates, but later we will add trees. *)
+  type Type.ctx_elem += 
+    | TplCtx of Type.t box
 
-  let desugar_template (ty, t) = match t with 
-    | [] -> nil (Type.lift ty)
-    | lt :: lts -> Template.desugar_in_context (ty, lt, lts)
+  (* Bindlib constructors for each syntax element. *)
+  let _TplStr s = box (TplStr s)
+  let _TplExpr = box_apply (fun e -> TplExpr e)
 
-  let desugar_tpart_in_context (ty, p, ps) = 
-    cons (Type.lift ty) (Template.desugar_part (ty, p)) (desugar_template (ty, ps))
+  let _StrTmpl = box_apply (fun t -> StrTmpl t)
 
-  let desugar_expr = function StrTmpl t -> join (desugar_template (TString, t))
+  (* These desugaring functions define the semantics of templates 
+     by translating them into the core expression language. *)
 
-  let desugar_tpart (ty, p) = match (ty, p) with
-    | (TString, TStr s) -> _EString s
-    | (_, TExpr e) -> Expr.desugar e    
+  (* A template desugars to a list of its desugared parts.
+     This is specifically NOT implemented with a List.map because
+     some template parts (like set-bindings) do not appear as values. *)
+  let desugar_template (t_tcx, tpl) = match tpl with 
+    | [] -> nil (Type.lift t_tcx)
+    | lt :: lts -> Template.desugar_in_context (t_tcx, lt, lts)
 
+  (* The baseline inductive case is that {|p :: ps|} -> {|p|} :: {|ps|}. *)
+  let desugar_tpart_in_context (t_tcx, p, ps) = 
+    cons (Type.lift t_tcx) (Template.desugar_part (t_tcx, p)) (desugar_template (t_tcx, ps))
+
+  let desugar_tpart (t_tcx, p) = match (t_tcx, p) with
+    (* A template string desugars into a plain string 
+       when in the context of a string template.*)
+    | (TString, TplStr s) -> _EString s
+    (* An expression is just recursively desugared. *)
+    | (_, TplExpr e) -> Expr.desugar e    
+
+  (* When embedded into an expression, a string template is desugared
+     by wrapping it in a join to convert the list into a string. *)
+  let desugar_expr = function 
+    | StrTmpl t -> join (desugar_template (TString, t))
+
+  (* Finds the current template context in the type context. *)
   let ctx_tpl_ty ctx = List.find_map 
       (fun elem -> match elem with TplCtx t -> Some t | _ -> None) 
       ctx |> Option.get
 
-  let typecheck_template (ctx, t) = 
-    let ty = ctx_tpl_ty ctx in
-    match t with 
-    | [] -> tylist (Type.lift ty)
+  (* Typechecking is defined in a similar style as desugaring. *)
+  let typecheck_template (ctx, tpl) = 
+    let t_tcx = ctx_tpl_ty ctx in
+    match tpl with 
+    (* A template should desugar to a term of type `ty list` 
+       where `ty` comes from the template context. *)
+    | [] -> tylist t_tcx
     | p :: ps -> Template.typecheck_in_context (ctx, p, ps)      
 
   let typecheck_tpart (ctx, p) = 
-    let ty = ctx_tpl_ty ctx in
+    let t_tcx = ctx_tpl_ty ctx in
     match p with
-    | TStr _ -> ty
-    | TExpr e -> 
-      if Expr.typecheck (ctx, e) = ty then ty 
+    (* The type of template strings is determined by context. *)
+    | TplStr _ -> t_tcx
+    (* The type of interpolated expressions must match the context. *)
+    | TplExpr e ->       
+      if Type.eq (unbox (Expr.typecheck (ctx, e))) (unbox t_tcx) then t_tcx 
       else raise (Type_error "typecheck_tpart")
 
+  (* Template parts should have the same type as the template list type. *)
   let typecheck_tpart_in_context (ctx, p, ps) =
-    let ty = ctx_tpl_ty ctx in
-    if Template.typecheck_part (ctx, p) <> ty then raise (Type_error "typecheck_tpart_in_context");    
-    typecheck_template (ctx, ps)
+    let t_tcx = ctx_tpl_ty ctx in
+    if Type.eq (unbox (Template.typecheck_part (ctx, p))) (unbox t_tcx) then typecheck_template (ctx, ps)
+    else raise (Type_error "typecheck_tpart_in_context")
 
   let typecheck (ctx, e) = match e with 
-      StrTmpl t -> 
-      if typecheck_template (TplCtx TString :: ctx, t) = tylist _TString then
-        TString
+    (* String templates should desugar to terms of type `string list`. *)
+    | StrTmpl tpl -> 
+      let t = typecheck_template (TplCtx _TString :: ctx, tpl) in
+      if Type.unbox_eq t (tylist _TString) then _TString
       else raise (Type_error "typecheck")
 
+  (* Boring code. *)
 
+  let lift_part = function
+    | TplStr s -> _TplStr s
+    | TplExpr e -> _TplExpr (Expr.lift e)
 
-  (* Boring code *)
+  let eval = function 
+    | StrTmpl _ -> raise Not_desugared    
 
-  let eval = function StrTmpl _ -> raise Not_desugared    
+  let lift_expr = function 
+    | StrTmpl _ -> raise Not_desugared
 
+  let subst_expr (_, _, e2) = match e2 with 
+    | StrTmpl _ -> raise Not_desugared    
 
-  let subst_expr (_, _, e2) = match e2 with StrTmpl _ -> raise Not_desugared    
+  let show_ttext kt = (Stdlib.String.concat "" (List.map Template.show kt))
 
-  let show_ttext kt = (StdString.concat "" (List.map Template.show kt))
+  let show_expr (_ctx, e) = match e with 
+    | StrTmpl kt -> Printf.sprintf "`%s`" (show_ttext kt)
 
-  let show_expr = function StrTmpl kt -> Printf.sprintf "`%s`" (show_ttext kt)
+  let eq_expr = function
+    | (StrTmpl _, _) | (_, StrTmpl _) -> raise Not_desugared
 
   let show_template = function
-    | TStr s -> s
-    | TExpr e -> Printf.sprintf "{%s}" (Expr.show e)    
+    | TplStr s -> s
+    | TplExpr e -> Printf.sprintf "{%s}" (Expr.show e)    
 end
+
 let register_dstrtlit () =
   Expr.register (module DStrTLit);
-  Template.register (module DStrTLit) *)
+  Template.register (module DStrTLit)
 
 (* D^String_TProg level of the document calculus.
-   Adds set, foreach, if, and splice as template parts. *)
-(*module DStrTProg = struct
+   Adds set, foreach, if, and splice as template parts.
+   Implements the splicing-based approach to handling nested lists. *)
+module DStrTProg = struct
   open DStrProg
   open DStrTLit
   open Prelude
 
   type Template.part +=
-    | TSet of var * Expr.t
-    | TForeach of Expr.t * var * Type.t * Template.t   
-    | TIf of Expr.t * Template.t * Template.t
-    | TSplice of Expr.t 
+    (* Note that we cannot use a Bindlib binder for TplSet because the terms
+       bound under the TplSet are adjacent to, not under, the set-binding. *)
+    | TplSet of Expr.var * Expr.t
+    (* But we can express the binding structure of TplForeach. *)
+    | TplForeach of Expr.t * Type.t * Expr.t Template.binder   
+    | TplIf of Expr.t * Template.t * Template.t
+    | TplSplice of Expr.t 
 
-  let desugar_tpart_in_context (ty, p, ps) = match p with 
-    | TSet (x, e) -> Let (x, e, desugar_template (ty, ps))
-    | TSplice e -> 
-      append ty (Expr.desugar e) (desugar_template (ty, ps))
-    | TForeach (e, x, xty, t) -> 
+  (* Smart constructors for Bindlib. *)
+  let _TplSet : Expr.var -> Expr.t box -> Template.part box = 
+    fun x -> box_apply (fun e -> TplSet (x, e))
+  let _TplForeach : Expr.t box -> Type.t box -> Expr.var -> Template.t box -> Template.part box = 
+    fun e xty x t -> box_apply3 (fun e xty t -> TplForeach (e, xty, t)) e xty (bind_var x t)
+  let _TplIf : Expr.t box -> Template.t box -> Template.t box -> Template.part box = 
+    box_apply3 (fun e t1 t2 -> TplIf (e, t1, t2))
+  let _TplSplice : Expr.t box -> Template.part box =
+    box_apply (fun e -> TplSplice e)
+
+  (* The desugaring as described in Section 3.1.4 of the paper. *)
+  let desugar_tpart_in_context (t_tcx, p, ps) = match p with 
+    (* {| set x = e; ...ps |} --> let x = e in {| ps |} *)
+    | TplSet (x, e) ->
+      _Let x (Expr.desugar e) (desugar_template (t_tcx, ps))
+
+    (* {| splice e; ...ps |} --> e @ {| ps |} *)
+    | TplSplice e -> 
+      append (Type.lift t_tcx) (Expr.desugar e) (desugar_template (t_tcx, ps))
+
+    (* Note that foreach/if desugarings are context-insensitive *except* that they desugar
+       to a splice, which *is* context-sensitive. *)
+
+    (* {| T-foreach e : t . tpl |} --> splice (E-foreach e : t . splice {| tpl |}) *)
+    | TplForeach (e, t, tpl) -> 
+      let (x, tpl) = unbind tpl in
       let t' = 
-        TSplice (
-          flatten ty
-            (foreach xty (tylist ty)
-               (lam1 x xty (desugar_template (ty, t))) 
+        _TplSplice (
+          flatten (Type.lift t_tcx)
+            (foreach (Type.lift t) (tylist (Type.lift t_tcx))
+               (lam1 x (Type.lift t) (desugar_template (t_tcx, tpl))) 
                (Expr.desugar e))) in
-      Template.desugar_in_context (ty, t', ps)
-    | TIf (e, t1, t2) ->
-      let t' = TSplice (if_ (Expr.desugar e) (desugar_template (ty, t1)) (desugar_template (ty, t2))) in
-      Template.desugar_in_context (ty, t', ps)
+      Template.desugar_in_context (t_tcx, unbox t', ps)
 
+    (* {| T-if e { tpl1 } else { tpl2 } |} --> E-if e { {| tpl1 |} else { {| tpl2 |} }*)
+    | TplIf (e, tpl1, tpl2) ->
+      let tpl' = _TplSplice (
+          if_ (Expr.desugar e) 
+            (desugar_template (t_tcx, tpl1))
+            (desugar_template (t_tcx, tpl2))) in
+      Template.desugar_in_context (t_tcx, unbox tpl', ps)
+
+  (* The typing judgment as described in Section 5.1 of the paper. *)
   let typecheck_tpart_in_context (ctx, p, ps) = 
-    let ty = ctx_tpl_ty ctx in 
+    let t_tcx = ctx_tpl_ty ctx in 
     match p with 
-    | TSet (x, e) ->
+    | TplSet (x, e) ->      
       let ety = Expr.typecheck (ctx, e) in 
       typecheck_template (BoundVar (x, ety) :: ctx, ps)
-    | TSplice e ->
+    | TplSplice e ->
       let ety = Expr.typecheck (ctx, e) in 
-      if ety = tylist ty then typecheck_template (ctx, ps) 
+      if Type.unbox_eq ety (tylist t_tcx) then typecheck_template (ctx, ps) 
       else raise (Type_error "typecheck_tpart_in_context")
-    | TForeach (e, x, xty, t) ->
-      let ety = Expr.typecheck (ctx, e) in
-      let t' = typecheck_template (BoundVar (x, xty) :: ctx, t) in
-      if ety = tylist xty && t' = tylist ty then typecheck_template (ctx, ps)
+    | TplForeach (e, t, tpl) ->
+      let (x, tpl) = unbind tpl in
+      let t_e = Expr.typecheck (ctx, e) in
+      let t' = typecheck_template (BoundVar (x, (Type.lift t)) :: ctx, tpl) in
+      if Type.unbox_eq t_e (tylist (Type.lift t)) && 
+         Type.unbox_eq t' (tylist t_tcx)
+      then typecheck_template (ctx, ps)
       else raise (Type_error "typecheck_tpart_in_context")
-    | TIf (e, t1, t2) ->
-      let ety = Expr.typecheck (ctx, e) in
-      let t1' = typecheck_template (ctx, t1) in
-      let t2' = typecheck_template (ctx, t2) in
-      if ety = tybool && t1' = tylist ty && t2' = tylist ty then typecheck_template (ctx, ps)
+    | TplIf (e, tpl1, tpl2) ->
+      let t_e = Expr.typecheck (ctx, e) in
+      let t1' = typecheck_template (ctx, tpl1) in
+      let t2' = typecheck_template (ctx, tpl2) in
+      if Type.unbox_eq t_e tybool && 
+         Type.unbox_eq t1' (tylist t_tcx) && 
+         Type.unbox_eq t2' (tylist t_tcx)
+      then typecheck_template (ctx, ps)
       else raise (Type_error "typecheck_tpart_in_context")
 
-
-  (* Boring code *)
+  (* Boring code. *)
 
   let show_template = function
-    | TForeach (e1, x, t, kt) -> Printf.sprintf "{{ foreach (%s : %s) in %s }} %s {{ endforeach }}" x (Type.show t) (Expr.show e1) (show_ttext kt)
-    | TSet (x, e) -> Printf.sprintf "{{ %s = %s }}" x (Expr.show e)
-    | TSplice e -> Printf.sprintf ",@%s" (Expr.show e)
+    | TplForeach (e1, t, kt) -> 
+      let (x, kt) = unbind kt in
+      Printf.sprintf "{{ foreach (%s : %s) in %s }} %s {{ endforeach }}" (name_of x) (Type.show t) (Expr.show e1) (show_ttext kt)
+    | TplSet (x, e) -> Printf.sprintf "{{ %s = %s }}" (name_of x) (Expr.show e)
+    | TplSplice e -> Printf.sprintf ",@%s" (Expr.show e)
+
+  let lift_part = function 
+    | TplSet (x, e) -> _TplSet x (Expr.lift e)
+    | TplForeach (e, t, kt) -> 
+      let (x, kt) = unbind kt in
+      _TplForeach (Expr.lift e) (Type.lift t) x (Template.lift kt)
+    | TplIf (e, t1, t2) -> _TplIf (Expr.lift e) (Template.lift t1) (Template.lift t2)
+    | TplSplice e -> _TplSplice (Expr.lift e)
 
   let typecheck_tpart = Open_func.noop
 
   let desugar_tpart = Open_func.noop
 end
+
 let register_dstrtprog () = 
-  Template.register (module DStrTProg) *)
+  Template.register (module DStrTProg)

@@ -1,15 +1,15 @@
 open Document_calculus.Base
 open Document_calculus.String
 open Bindlib
-(* open Document_calculus.Article
-open Document_calculus.Extensions *)
+open Document_calculus.Article
+open Document_calculus.Extensions
 
 let main () =    
   (*** DStrLit tests ***)
   let open DStrLit in
   register_dstrlit ();
-  assert (Expr.typecheck ([], EString "sup") = TString);
-  assert (Expr.eval (EString "sup") = (EString "sup"));
+  assert (Type.eq (Expr.typecheck_top (_EString "sup")) TString);
+  assert (Expr.eq (Expr.eval (EString "sup")) (EString "sup"));
 
 
   (*** DStrProg tests ***)
@@ -18,76 +18,78 @@ let main () =
   register_dstrprog() ;
   assert (Expr.eval (Concat (EString "hello", EString " world")) = (EString "hello world"));
   let x = mkefree "x" in  
-  let e = unbox (
+  let e = (
     _Let x (_EString "a")     
       (_Concat (_Var x) (_Concat (_EString "b") (_Var x)))) in
-  assert (Expr.typecheck ([], e) = TString);
-  assert (Expr.desugar_eval e = EString "aba");
+  assert (Type.eq (Expr.typecheck_top e) TString);
+  assert (Expr.eq (Expr.eval_top e) (EString "aba"));
 
   let e = with_prelude (_EString "") in 
-  assert (Expr.typecheck ([], unbox e) = TString);
+  assert (Type.eq (Expr.typecheck_top e) TString);
 
-(* 
+
   (*** DStrTLit tests ***)
-
   let open DStrTLit in
+  let open Template in
   register_dstrtlit ();  
-  let e = with_prelude (
-      Let("world", EString " World", 
-          StrTmpl [TStr "Hello"; TExpr (Var "world")])) in
-  assert (Expr.typecheck ([], (Expr.desugar e)) = TString);
-  assert (Expr.typecheck ([], e) = TString);
-  assert (Expr.desugar_eval e = (EString "Hello World"));
+  let world = mkefree "world" in
+  let e = (
+    _Let world (_EString " World")
+      (_StrTmpl (_Template [_TplStr "Hello"; _TplExpr (_Var world)]))) in
+  assert (Type.eq (Expr.typecheck_top (desugar_with_prelude e)) TString);
+  assert (Type.eq (Expr.typecheck_top (with_prelude e)) TString);
+  assert (Expr.eq (Expr.eval_top (desugar_with_prelude e)) (EString "Hello World"));
 
 
   (*** DStrTProg tests ***)
   let open DStrTProg in
   register_dstrtprog ();  
-  let e = with_prelude (StrTmpl [
-      TForeach (
-        list TString [EString "a"; EString "b"], "x", TString, 
-        [TExpr (Var "x"); TStr "c"])]) in
-  assert (Expr.typecheck ([], (Expr.desugar e)) = TString);
-  assert (Expr.typecheck ([], e) = TString);
-  assert (Expr.desugar_eval e = (EString "acbc"));
+  let e = (
+    _StrTmpl (_Template [
+        _TplForeach 
+          (list _TString [_EString "a"; _EString "b"])
+          _TString
+          x
+          (_Template [_TplExpr (_Var x); _TplStr "c"])  
+      ])
+  ) in
+  assert (Type.eq (Expr.typecheck_top (desugar_with_prelude e)) TString);
+  assert (Type.eq (Expr.typecheck_top (with_prelude e)) TString);
+  assert (Expr.eq (Expr.eval_top (desugar_with_prelude e)) (EString "acbc"));  
 
 
   (*** DTreeTProg tests ***)
   let open DTreeProg in
   let open DTreeTProg in
   register_dtreetprog ();
-  let e = with_prelude (TreeTmpl [TNode ("p", [], [
-      TStr "Hello";
-      TSet ("world", text (EString "World"));
-      TExpr (Var "world");
-      TForeach (
-        list TString [EString "?"; EString "!"], "x",  TString,
-        [TNode ("bold", [], [TExpr (text (Var "x"))])]);    
-    ])]) in
-  let expected = Expr.eval (with_prelude (nodelist [node (EString "p") (nil tyattr) (nodelist [
-      text (EString "Hello"); text (EString "World");
-      node (EString "bold") (nil tyattr) (nodelist [text (EString "?")]);
-      node (EString "bold") (nil tyattr) (nodelist [text (EString "!")])
+  let mk_tpl textfn = _Template [_TplNode "p" [] (_Template [
+      _TplStr "Hello";
+      _TplSet world (textfn (_EString "World"));
+      _TplExpr (_Var world);
+      _TplForeach 
+        (list _TString [_EString "?"; _EString "!"])         
+        _TString
+        x        
+        (_Template [_TplNode "bold" [] (_Template [_TplExpr (textfn (_Var x))])]);    
+    ])] in
+  let e = _TreeTmpl (mk_tpl text) in
+  let expected = Expr.eval_top (desugar_with_prelude (nodelist [node (_EString "p") (nil tyattr) (nodelist [
+      text (_EString "Hello"); text (_EString "World");
+      node (_EString "bold") (nil tyattr) (nodelist [text (_EString "?")]);
+      node (_EString "bold") (nil tyattr) (nodelist [text (_EString "!")])
     ])])) in
-  assert (Expr.typecheck ([], Expr.desugar e) = tylist tynode);
-  assert (Expr.typecheck ([], e) = tylist tynode);
-  assert (Expr.desugar_eval e = expected);
+  assert (Type.eq (Expr.typecheck_top (desugar_with_prelude e)) (unbox (tylist tynode)));
+  assert (Type.eq (Expr.typecheck_top (with_prelude e)) (unbox (tylist tynode)));
+  assert (Expr.eq (Expr.eval_top (desugar_with_prelude e)) expected);
 
 
   (*** DTreeTProgNested tests ***)
   let open DTreeTProgNested in
   register_dtreeprognested ();  
-  let e = with_prelude (FragTpl [TNode ("p", [], [
-      TStr "Hello";
-      TSet ("world", ftext (EString "World"));
-      TExpr (Var "world");
-      TForeach (
-        list TString [EString "?"; EString "!"], "x", TString,
-        [TNode ("bold", [], [TExpr (ftext (Var "x"))])]);    
-    ])]) in
-  assert (Expr.typecheck ([], Expr.desugar e) = tylist tynode);
-  assert (Expr.typecheck ([], e) = tylist tynode);
-  assert (Expr.desugar_eval e = expected);
+  let e = _FragTpl (mk_tpl ftext) in  
+  assert (Type.eq (Expr.typecheck_top (desugar_with_prelude e)) (unbox (tylist tynode)));
+  assert (Type.eq (Expr.typecheck_top (with_prelude e)) (unbox (tylist tynode)));
+  assert (Expr.eq (Expr.eval_top (desugar_with_prelude e)) expected);
 
 
   (*** References extension tests ***)
@@ -162,7 +164,7 @@ let main () =
 
   let v2 = doc_step [(1, "click")] v1 in
   let a2 = doc_view v2 in
-  assert (a2 = NNode ("para", [], [NText "|"; NText "@"])); *)
+  assert (a2 = NNode ("para", [], [NText "|"; NText "@"]));
 
   ()
 

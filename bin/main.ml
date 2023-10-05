@@ -8,6 +8,6 @@ let main () =
      $ dune exec bin/main.exe *)
   let open DStrLit in
   register_dstrlit ();
-  assert (Expr.typecheck ([], EString "sup") = TString)
+  assert (Type.eq (Expr.typecheck_top (_EString "sup")) TString)
 
 let () = main ()
