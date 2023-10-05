@@ -11,18 +11,24 @@ Additional artifact description (file structure, extending the tool or adding yo
 
 The core contribution of our paper is a formal model of document languages. This model extends System F with the concept of templates. We provide static and dynamic semantics for templates, and we also model various run-time extensions to the system such as reference labeling and reactivity.
 
-This artifact implements each aspect of the model in OCaml. Our main goal in the implementation is to *correctly* and *clearly* implement the model. Then this model can facilitate authors of document languages to pick and choose ideas that are relevant to their setting, especially those less familiar with PL theory notation.
+This artifact implements each aspect of the model in OCaml. Our main goal in the implementation is to *correctly* and *clearly* implement the model. Then this model can facilitate authors of document languages to pick and choose ideas that are relevant to their setting, especially those less familiar with PL theory notation. Each of the source files has been liberally commented to explain the purpose of the code, and to point a reader to the relevant pieces.
 
-The mapping between the model (i.e., the claims) and the artifact is as follows:
-* Section 3.1: `string.ml`
-* Section 3.2: `article.ml`
-* Section 4: `extensions.ml`
-* Section 5.1: the `typecheck_template` functions in  `string.ml` and `article.ml`.
-* Section 5.2: a proof, so no correspondent in the codebase.
+**Claims:** Sections 3, 4, and 5 all contain elements that are implemented in the artifact. See "Evaluation Instructions" below for details on which modules correspond to which subsections.
 
-Each of the source files has been liberally commented to explain the purpose of the code, and to point a reader to the relevant pieces.
+## Getting Started
 
-## Installation
+### I'm in a hurry
+
+You need [opam]. Copy this script:
+
+```
+opam switch create 4.13.1 --yes
+eval $(opam env --switch=4.13.1)
+opam install . --deps-only --yes
+opam exec -- dune test
+```
+
+### I have some time
 
 First, you need the OCaml package manager [opam]. This artifact was last tested with opam version 2.1.3.
 
@@ -44,13 +50,20 @@ Finally, make sure the tests pass by running:
 opam exec -- dune test
 ```
 
-If you're in a hurry, copy this script:
+## Evaluation Instructions
 
-```
-opam switch create 4.13.1 --yes
-eval $(opam env --switch=4.13.1)
-opam install . --deps-only --yes
-opam exec -- dune test
-```
+To evaluate this artifact, you should check that the paper representation of the model matches the OCaml representation of the model. I recommend doing so in the following order:
+
+* Section 3.1.1: the `DStrLit` module in `string.ml`.
+* Section 3.1.2: the `DStrProg` module in `string.ml`.
+* Section 3.1.3: the `DStrTLit` module in `string.ml`.
+* Section 3.2.1: has no implementation in the code.
+* Section 3.2.2: the `DArtProg` module in `article.ml`.
+* Section 3.2.3: has no implementation in the code.
+* Section 3.2.4: the `DArtTProg` module and the `DArtTProgNested` module in `article.ml`, and the `Node` module in `extensions.ml`.
+* Section 4.1: the `References` module in `extensions.ml`.
+* Section 4.2: the `Reforestation` module in `extensions.ml`.
+* Section 4.3: the `Reactivity` module in `extensions.ml`.
+* Section 5.1: the `typecheck_template` functions in `string.ml` and `article.ml`.
 
 [opam]: https://opam.ocaml.org/doc/Install.html
