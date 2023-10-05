@@ -106,7 +106,7 @@ module DArtTProg = struct
       if Type.unbox_eq (typecheck_template (ctx, children)) (tylist ty) then ty 
       else raise (Type_error "children")      
 
-  (* Boring code *)
+  (* Boring code. *)
 
   let show_template = function
     | TplNode (nt, _, kt) -> Printf.sprintf "<%s>%s</%s>" nt (show_ttext kt) nt
@@ -154,7 +154,8 @@ module DArtTProgNested = struct
   (* Lots of type definitions... it's a little obscured due to the embedding 
      in System F. To see a clearer presentation, either:
      - Check out the symbolic formalism in Section 3.2.4 of the paper.
-     - Check out extensions.ml for an OCaml embedding of the types and elim_frags code. *)
+     - Check out extensions.ml for a shallow OCaml embedding.
+       (The code below was largely transliterated from the other OCaml code.) *)
   let tree = mktfree "tree"
   let tyfrag t = _TRec tree (_TSum t (tylist (_TVar tree)))
   let tyfragbody t = _TSum t (tylist (tyfrag t))

@@ -15,7 +15,9 @@ module DStrLit = struct
   type Type.t += 
     | TString
 
-  (* Constructor functions needed for Bindlib integration. *)
+  (* We use Bindlib <https://lepigre.fr/ocaml-bindlib/> to handle binding.
+     This requires special constructor functions for all syntax elements,
+     which are prefixed with an underscore. *)
   let _EString : string -> Expr.t box = fun s -> box (EString s)
   let _TString = box TString
 
@@ -58,8 +60,7 @@ module DStrProg = struct
 
   type dir = Left | Right
 
-  (* Add all of System F's expressions.
-     Note that we use Bindlib (https://lepigre.fr/ocaml-bindlib/) to handle binding. *)
+  (* Add all of System F's expressions... *)
   type Expr.t += 
     | Concat of Expr.t * Expr.t 
     | Let of Expr.t * Expr.t Expr.binder
@@ -83,10 +84,7 @@ module DStrProg = struct
     | Pack of Type.t * Expr.t * Type.t
     | Unpack of Expr.t * (Expr.t, (Type.t, Expr.t) binder) binder
 
-  type Type.ctx_elem += 
-    | BoundVar of Expr.var * Type.t box
-    | BoundTypeVar of Type.var
-
+  (* ... and types ... *)
   type Type.t +=
     | TFun of Type.t * Type.t
     | TProd of Type.t * Type.t
@@ -96,6 +94,11 @@ module DStrProg = struct
     | TExists of Type.t Type.binder
     | TRec of Type.t Type.binder
     | TVar of Type.var
+
+  (* ... and type context elements. *)
+  type Type.ctx_elem += 
+    | BoundVar of Expr.var * Type.t box
+    | BoundTypeVar of Type.var
 
   (* The code below is a relatively rote implementation of System F.
      It mostly looks like you would find in e.g. TAPL. 

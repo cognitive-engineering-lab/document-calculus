@@ -57,6 +57,7 @@ To evaluate this artifact, you should check that the paper representation of the
 * Section 3.1.1: the `DStrLit` module in `string.ml`.
 * Section 3.1.2: the `DStrProg` module in `string.ml`.
 * Section 3.1.3: the `DStrTLit` module in `string.ml`.
+* Section 3.1.4: the `DStrTProg` module in `string.ml`.
 * Section 3.2.1: has no implementation in the code.
 * Section 3.2.2: the `DArtProg` module in `article.ml`.
 * Section 3.2.3: has no implementation in the code.
