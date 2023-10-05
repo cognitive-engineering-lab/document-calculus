@@ -1,0 +1,48 @@
+opam-version: "2.0"
+name: "document_calculus"
+version: "~dev"
+synopsis:
+  "Accompanying materials for \"A Core Calculus for Documents\" (Crichton and Krishnamurthi 2024)"
+maintainer: "Will Crichton"
+authors: "Will Crichton"
+license: ["MIT" "Apache-2.0"]
+homepage: "https://github.com/cognitive-engineering-lab/document-calculus"
+doc: "https://url/to/documentation"
+bug-reports:
+  "https://github.com/cognitive-engineering-lab/document-calculus/issues"
+depends: [
+  "base-bigarray" {= "base"}
+  "base-threads" {= "base"}
+  "base-unix" {= "base"}
+  "bindlib" {= "6.0.0"}
+  "cppo" {= "1.6.9"}
+  "dune" {= "3.8.2"}
+  "ocaml" {= "4.13.1"}
+  "ocaml-base-compiler" {= "4.13.1"}
+  "ocaml-compiler-libs" {= "v0.12.4"}
+  "ocaml-config" {= "2"}
+  "ocaml-options-vanilla" {= "1"}
+  "ocamlfind" {= "1.9.6"}
+  "ppx_derivers" {= "1.2.1"}
+  "ppx_deriving" {= "5.2.1"}
+  "ppxlib" {= "0.30.0"}
+  "result" {= "1.5"}
+  "sexplib0" {= "v0.16.0"}
+  "stdlib-shims" {= "0.3.0"}
+]
+build: [
+  ["dune" "subst"] {dev}
+  [
+    "dune"
+    "build"
+    "-p"
+    name
+    "-j"
+    jobs
+    "@install"
+    "@runtest" {with-test}
+    "@doc" {with-doc}
+  ]
+]
+dev-repo:
+  "git+https://github.com/cognitive-engineering-lab/document-calculus.git"
