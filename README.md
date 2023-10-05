@@ -55,7 +55,7 @@ opam switch create 4.13.1
 Then install the project's dependencies by running:
 
 ```
-opam install . --deps-only
+opam install . --deps-only --locked
 ```
 
 Finally, make sure the tests pass by running:
@@ -68,18 +68,18 @@ opam exec -- dune test
 
 To evaluate this artifact, you should check that the paper representation of the model matches the OCaml representation of the model. I recommend doing so in the following order:
 
-* Section 3.1.1: the `DStrLit` module in `string.ml`.
-* Section 3.1.2: the `DStrProg` module in `string.ml`.
-* Section 3.1.3: the `DStrTLit` module in `string.ml`.
-* Section 3.1.4: the `DStrTProg` module in `string.ml`.
+* Section 3.1.1: the `DStrLit` module in `lib/string.ml`.
+* Section 3.1.2: the `DStrProg` module in `lib/string.ml`.
+* Section 3.1.3: the `DStrTLit` module in `lib/string.ml`.
+* Section 3.1.4: the `DStrTProg` module in `lib/string.ml`.
 * Section 3.2.1: has no implementation in the code.
-* Section 3.2.2: the `DArtProg` module in `article.ml`.
+* Section 3.2.2: the `DArtProg` module in `lib/article.ml`.
 * Section 3.2.3: has no implementation in the code.
-* Section 3.2.4: the `DArtTProg` module and the `DArtTProgNested` module in `article.ml`, and the `Node` module in `extensions.ml`.
-* Section 4.1: the `References` module in `extensions.ml`.
-* Section 4.2: the `Reforestation` module in `extensions.ml`.
-* Section 4.3: the `Reactivity` module in `extensions.ml`.
-* Section 5.1: the `typecheck_template` functions in `string.ml` and `article.ml`.
+* Section 3.2.4: the `DArtTProg` module and the `DArtTProgNested` module in `lib/article.ml`, and the `Node` module in `lib/extensions.ml`.
+* Section 4.1: the `References` module in `lib/extensions.ml`.
+* Section 4.2: the `Reforestation` module in `lib/extensions.ml`.
+* Section 4.3: the `Reactivity` module in `lib/extensions.ml`.
+* Section 5.1: the `typecheck_template` functions in `lib/string.ml` and `lib/article.ml`.
 
 ## Additional Artifact Details
 
