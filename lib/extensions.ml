@@ -3,11 +3,11 @@
    These extensions operate mostly in "user space" rather than at the language level,
    so it's clearer to implement the extensions shallowly within OCaml rather than
    deeply in System F. *)
-  
+
 
 (* These type definitions are the same as the DArtTProgNested in article.ml,
    but much more readable thanks to OCaml's syntax and sugar.
-   
+
    See Section 3.4.2 for the formal model of these types. *) 
 module Node = struct
   type 'a struct_node = string * (string * string) list * 'a
@@ -114,10 +114,10 @@ module Reactivity = struct
     type ('props, 'state) component = {      
       (* Initialization function converts properties to state. *)
       init : 'props -> 'state;
-      
+
       (* Update function changes state in response to a signal. *)
       update : signal -> 'state -> 'state;
-      
+
       (* View function converts the state into a virtual DOM tree (including components). *)
       view : 'state -> T.rnode;
 
@@ -127,7 +127,7 @@ module Reactivity = struct
 
     (* An instance is a realization of a component with a particular set of
        properties and state.
-       
+
        Note that we have to make Instance a module so we can use it as an existential
        type, i.e. to erase its props/state types and allow the component tree
        to hold many component instances of different types. *)

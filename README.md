@@ -1,11 +1,6 @@
 # A Core Calculus for Documents
 
-This repository contains the accompanying artifact for our POPL'24 paper "A Core Calculus for Documents" (Crichton and Krishnamurthi). 
-
-<!-- A complete list of claims made by your paper
-Download, installation, and sanity-testing instructions
-Evaluation instructions
-Additional artifact description (file structure, extending the tool or adding your own examples, etc.) -->
+This repository contains the accompanying artifact for the POPL'24 paper "A Core Calculus for Documents" (Crichton and Krishnamurthi). 
 
 ## Overview
 
@@ -66,5 +61,35 @@ To evaluate this artifact, you should check that the paper representation of the
 * Section 4.2: the `Reforestation` module in `extensions.ml`.
 * Section 4.3: the `Reactivity` module in `extensions.ml`.
 * Section 5.1: the `typecheck_template` functions in `string.ml` and `article.ml`.
+
+## Additional Artifact Details
+
+The main source files are all in `lib/`. The other files correspond to these categories:
+
+### Tests
+
+To test that the artifact has no basic errors, we have written a number of unit tests in `test/tests.ml`. You can run these tests with the following command:
+
+```
+opam exec -- dune test
+```
+
+You can also edit `tests.ml` and add your own test if you want.
+
+### Playground
+
+We have provided a `bin/main.ml` file for playing around with the library. 
+There is already a sample program there you can run, like this:
+
+```
+$ opam exec -- dune exec bin/main.exe
+A sample program:
+  "hello" + " world"
+
+It evaluates to:
+  "hello world"
+```
+
+You can try modifying `main.ml` and rerunning it with different programs.
 
 [opam]: https://opam.ocaml.org/doc/Install.html
